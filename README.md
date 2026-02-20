@@ -1,4 +1,3 @@
-```markdown
 # clicker-rp2040
 
 Sistema distribuído de cliques em tempo real para a BitDogLab (RP2040).
