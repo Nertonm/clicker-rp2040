@@ -4,10 +4,6 @@ Sistema distribuído de cliques em tempo real para a BitDogLab (RP2040).
 Três placas competem por um placar global via JSON-RPC sobre TCP, com
 sincronização causal por relógio de Lamport e reconexão automática.
 
-Projeto acadêmico — Sistemas Distribuídos, 2026.
-
----
-
 ## O que faz
 
 Cada placa registra pressionamentos do botão A e os envia periodicamente
@@ -147,4 +143,4 @@ verificável.
 | avocado_node2.uf2     | 2       | Amarelo |
 
 Etiquete fisicamente cada placa antes da apresentação.
-```
+
