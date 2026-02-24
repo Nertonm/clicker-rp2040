@@ -35,7 +35,11 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(firmware firmware.c )
+add_executable(firmware
+    main.c
+    middleware/button_handler.c
+    middleware/shared_state.c
+)
 
 pico_set_program_name(firmware "firmware")
 pico_set_program_version(firmware "0.1")
@@ -60,6 +64,8 @@ target_include_directories(firmware PRIVATE
 target_link_libraries(firmware 
         hardware_i2c
         hardware_pio
+        hardware_pwm
+        hardware_adc
         pico_cyw43_arch_lwip_poll
         )
 

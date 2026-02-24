@@ -1,10 +1,67 @@
+#include "hardware/adc.h"
+// #include "hardware/pwm.h" // Remoção de header não utilizado
+#include "middleware/button_handler.h"
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
-#include <string.h>
+#include "secrets_template.h"
 #include <stdio.h>
-#include "config.h"
-#include "functions.h"
-#include "include/ssd1306.h"
-#include "hardware/pwm.h"
-#include "hardware/adc.h"
+// #include <string.h> // Remoção de header não utilizado
 
+#include "hardware_config.h"
+
+int main(void) {
+  stdio_init_all();
+
+  // Aguarda conexão do terminal USB para não perder mensagens iniciais
+  while (!stdio_usb_connected()) {
+    sleep_ms(100);
+  }
+
+  printf("\n[BOOT] Inicializando hardware...\n");
+
+  button_handler_init();
+
+  // Inicializa ADC para evitar travamento no adc_read()
+  adc_init();
+  adc_gpio_init(JOY_VRY_PIN); // GPIO 26 = ADC 0
+  adc_select_input(0);
+
+  if (cyw43_arch_init()) {
+    printf("failed to initialise WiFi chip, seguindo sem WiFi\n");
+    // marcar STATUS_OFFLINE e seguir normalmente
+  } else {
+    cyw43_arch_enable_sta_mode();
+    printf("Connecting to Wi-Fi...\n");
+
+    int rc = cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD,
+                                                CYW43_AUTH_WPA2_AES_PSK, 10000);
+
+    if (rc != 0) {
+      printf("failed to connect, rc=%d — seguindo sem WiFi\n", rc);
+      // não chama exit, não entra em while(1) de erro
+      // apenas considera STATUS_OFFLINE e segue
+    } else {
+      printf("WiFi connected.\n");
+      // STATUS_ONLINE
+    }
+  }
+
+  uint32_t last_a = 0;
+  uint32_t last_b = 0;
+
+  printf("\n[MAIN] Entrando no loop principal...\n");
+
+  while (true) {
+    uint32_t count_a = button_handler_get_a_count();
+    uint32_t count_b = button_handler_get_b_count();
+
+    if (count_a != last_a || count_b != last_b) {
+      printf("[BTN] A: %u | B: %u\n", count_a, count_b);
+      last_a = count_a;
+      last_b = count_b;
+    }
+
+    // Loop principal leve — não bloqueia, não trava
+    sleep_ms(10);
+  }
+}
