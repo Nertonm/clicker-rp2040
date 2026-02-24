@@ -1,0 +1,27 @@
+{
+  "configurations": [
+    {
+      "name": "Linux",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "compileCommands": "${workspaceFolder}/firmware/build/compile_commands.json",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "${workspaceFolder}/firmware/**",
+        "/home/nerton/TRABALHO/.pico-sdk/sdk/2.2.0/**"
+      ],
+      "browse": {
+        "path": [
+          "${workspaceFolder}/**",
+          "${workspaceFolder}/firmware/**",
+          "/home/nerton/TRABALHO/.pico-sdk/sdk/2.2.0/**"
+        ],
+        "limitSymbolsToIncludedHeaders": true,
+        "databaseFilename": ""
+      }
+    }
+  ],
+  "version": 4
+}
