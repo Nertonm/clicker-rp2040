@@ -1,11 +1,12 @@
+#include "drivers/display/display.h"
 #include "hardware/adc.h"
 // #include "hardware/pwm.h" // Remoção de header não utilizado
 #include "middleware/button_handler.h"
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
 #include "secrets_template.h"
+#include "ssd1306_i2c.h"
 #include <stdio.h>
-// #include <string.h> // Remoção de header não utilizado
 
 #include "hardware_config.h"
 
@@ -18,6 +19,11 @@ int main(void) {
   }
 
   printf("\n[BOOT] Inicializando hardware...\n");
+
+  display_init();
+  display_clear();
+  display_text(0, 0, "Hello World");
+  display_show();
 
   button_handler_init();
 

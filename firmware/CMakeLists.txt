@@ -39,6 +39,8 @@ add_executable(firmware
     main.c
     middleware/button_handler.c
     middleware/shared_state.c
+    drivers/display/display.c
+    drivers/display/ssd1306_i2c.c
 )
 
 pico_set_program_name(firmware "firmware")
@@ -58,6 +60,8 @@ target_link_libraries(firmware
 # Add the standard include files to the build
 target_include_directories(firmware PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/drivers/display
+        ${CMAKE_CURRENT_LIST_DIR}/middleware
 )
 
 # Add any user requested libraries
@@ -67,6 +71,7 @@ target_link_libraries(firmware
         hardware_pwm
         hardware_adc
         pico_cyw43_arch_lwip_poll
+        pico_stdlib
         )
 
 pico_add_extra_outputs(firmware)

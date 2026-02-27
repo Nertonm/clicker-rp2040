@@ -1,8 +1,8 @@
 # clicker-rp2040
 
 Sistema distribuído de cliques em tempo real para a BitDogLab (RP2040).
-Três placas competem por um placar global via JSON-RPC sobre TCP, com
-sincronização causal por relógio de Lamport e reconexão automática.
+Múltiplas placas competem por um placar global via JSON-RPC sobre TCP, com
+sincronização causal e reconexão automática.
 
 ## O que faz
 
@@ -26,11 +26,10 @@ sincroniza quando o servidor voltar, sem perder nenhum evento.
 ```
 
 **Firmware (C / Pico SDK)**
-- Core 0: loop de 20 ms — envia cliques via RPC, gerencia WiFi e reconexão
-- Core 1: loop de 100 ms — atualiza OLED, LEDs WS2812 e fila de buzzer
-- Estado compartilhado protegido por spinlock
+- Core 0: Inicialização, WiFi, leitura de botões e loop principal.
+- Estado compartilhado protegido por spinlock via `shared_state`.
 
-**Servidor — stack a definir**
+**Servidor  stack a definir**
 - Dispatcher JSON-RPC 2.0 com suporte a múltiplas conexões simultâneas
 - Lógica de jogo: rate limiting, milestones, power-up
 - Rastreamento de nós ativos e heartbeats
@@ -56,20 +55,17 @@ sincroniza quando o servidor voltar, sem perder nenhum evento.
 
 ## Compilação do firmware
 
-O firmware usa três targets distintos, um por placa, com `NODE_ID`
-definido em compile-time.
+O firmware é compilado usando CMake. Certifique-se de que o Pico SDK está configurado.
 
 ```bash
 mkdir build && cd build
-cmake .. -DSSID="sua_rede" -DPASSWORD="sua_senha" -DDEV_SERVER_IP="192.168.x.x"
-cmake --build . --target all
+cmake ..
+cmake --build .
 ```
 
-Isso gera `avocado_node0.uf2`, `avocado_node1.uf2` e `avocado_node2.uf2`
-em `dist/`. Grave cada arquivo na placa correspondente segurando BOOTSEL
-ao conectar via USB.
+Isso gera o arquivo `firmware.uf2`. Grave na placa segurando BOOTSEL ao conectar via USB.
 
-Credenciais de rede não entram no controle de versão — defina em
+Credenciais de rede não entram no controle de versão  defina em
 `secrets.h` (ignorado pelo `.gitignore`) ou passe via flags de
 compilação como mostrado acima.
 
@@ -90,8 +86,8 @@ O servidor expõe uma rota `/admin` com:
 1. Ligue as três placas. Elas descobrem o servidor via UDP e se registram.
 2. Pressione o botão A para acumular cliques. O Core 0 os envia a cada 20 ms.
 3. Pressione o botão B para ativar o multiplicador ×3 por 10 segundos.
-4. Desligue o servidor — as placas entram em OFFLINE e continuam acumulando.
-5. Religue o servidor — cada placa sincroniza os cliques pendentes via `sync_offline`.
+4. Desligue o servidor  as placas entram em OFFLINE e continuam acumulando.
+5. Religue o servidor  cada placa sincroniza os cliques pendentes via `sync_offline`.
 6. O dashboard reflete tudo em menos de 1 segundo via WebSocket.
 
 ---
@@ -100,23 +96,19 @@ O servidor expõe uma rota `/admin` com:
 
 ```
 firmware/
-  main.c                entry point — boot e loop principal do Core 0
-  rpc_client.c/h        API pública de rede — único ponto de lwIP
+  main.c                ponto de entrada — inicialização e loop principal
+  CMakeLists.txt        configuração de build do projeto
+  hardware_config.h     centralização de GPIOs e configurações de hardware
   middleware/
-    lamport.c/h         relógio de Lamport thread-safe
-    shared_state.c/h    estado compartilhado entre cores (spinlock)
-  drivers/
-    oled.c/h            driver SSD1306
-    led_matrix.c/h      WS2812 via PIO
-  audio/
-    buzzer_queue.c/h    fila de eventos sonoros (capacidade 4)
-  discovery/
-    service_disc.c      broadcast UDP de descoberta
-  hardware_config.h     único arquivo com números de pino e NODE_ID
+    button_handler.c/h  leitura de botões com debounce por software
+    shared_state.c/h    estado compartilhado entre rotinas (spinlock)
+  drivers/              em desenvolvimento (OLED, LED Matrix)
+  audio/                em desenvolvimento (Buzzer)
+  net/                  em desenvolvimento (RPC, Discovery)
 
-server/                 stack a definir
+server/                 planejado
 
-dist/                   binários gerados (.uf2) — não versionado
+docs/                   documentação técnica
 ```
 
 ---
@@ -142,5 +134,5 @@ verificável.
 | avocado_node1.uf2     | 1       | Azul    |
 | avocado_node2.uf2     | 2       | Amarelo |
 
-Etiquete fisicamente cada placa antes da apresentação.
+Use etiquetas físicas para identificar as placas durante testes.
 
