@@ -135,6 +135,7 @@ class GameManager():
                     self.milestones_done.add(m)
                     # Registra milestone.
                     await self.node_registry.insert_milestone(m, node_id, lamport_ts, now)
+                    break
             await self.node_registry.update_status(node_id, "ACTIVE")
             #Respostas padrões.
             response = {
