@@ -46,9 +46,11 @@ void led_matrix_init(void) {
 
 static void np_write(void) {
   for (uint i = 0; i < WS2812_NUM_LEDS; i++) {
-    pio_sm_put_blocking(pio_inst, sm_inst, led_buffer[i].G);
-    pio_sm_put_blocking(pio_inst, sm_inst, led_buffer[i].R);
-    pio_sm_put_blocking(pio_inst, sm_inst, led_buffer[i].B);
+    // Redução agressiva de brilho para BitDogLab (shift 5 bits = divide por 32)
+    // Isso garante que mesmo o valor "1" seja extremamente fraco.
+    pio_sm_put_blocking(pio_inst, sm_inst, led_buffer[i].G >> 4);
+    pio_sm_put_blocking(pio_inst, sm_inst, led_buffer[i].R >> 4);
+    pio_sm_put_blocking(pio_inst, sm_inst, led_buffer[i].B >> 4);
   }
   sleep_us(100); // Latch pulse
 }
@@ -69,6 +71,75 @@ void led_clear_all(void) {
     led_buffer[i].R = 0;
     led_buffer[i].G = 0;
     led_buffer[i].B = 0;
+  }
+  np_write();
+}
+
+// Função para converter coordenadas (x, y) para o índice do LED no BitDogLab
+// x: 0 (esquerda) a 4 (direita)
+// y: 0 (baixo) a 4 (cima)
+static int get_index(int x, int y) {
+  // No BitDogLab, a matriz começa no canto inferior direito
+  // e segue em serpentina.
+  if (y % 2 == 0) {
+    // Linhas pares: da direita para a esquerda (y=0, 2, 4)
+    return y * 5 + (4 - x);
+  } else {
+    // Linhas ímpares: da esquerda para a direita (y=1, 3)
+    return y * 5 + x;
+  }
+}
+
+// Bitmaps corrigidos para matriz 5x5 (25 bits)
+// Ordem dos bits: Bit 24 (Topo-Esquerda, x=0, y=4) até Bit 0 (Base-Direita,
+// x=4, y=0)
+static const uint32_t final_bitmaps[10] = {
+    0x0E8C62E, // 0
+    0x046108E, // 1
+    0x1F0FE1F, // 2
+    0x1F0FC3F, // 3
+    0x118FC21, // 4
+    0x1F87C3F, // 5
+    0x1F87E3F, // 6
+    0x1F08888, // 7
+    0x1F8FE3F, // 8
+    0x1F8FC3F  // 9
+};
+
+void led_matrix_draw_number(uint8_t num, uint8_t r, uint8_t g, uint8_t b) {
+  if (num > 9)
+    return;
+
+  uint32_t bitmap = final_bitmaps[num];
+
+  // Limpa o buffer antes de desenhar
+  for (int i = 0; i < 25; i++) {
+    led_buffer[i].R = 0;
+    led_buffer[i].G = 0;
+    led_buffer[i].B = 0;
+  }
+
+  // Mapeia o bitmap de 25 bits (y=4..0, x=0..4) para os LEDs serpentina
+  for (int y = 0; y < 5; y++) {
+    for (int x = 0; x < 5; x++) {
+      // Bit pos no bitmap: bit 24 é x=0, y=4. bit 0 é x=4, y=0.
+      int bit_pos = y * 5 + (4 - x);
+      if (bitmap & (1 << bit_pos)) {
+        int index = get_index(x, y);
+        led_buffer[index].R = r;
+        led_buffer[index].G = g;
+        led_buffer[index].B = b;
+      }
+    }
+  }
+  np_write();
+}
+
+void led_matrix_set_all(uint8_t r, uint8_t g, uint8_t b) {
+  for (int i = 0; i < 25; i++) {
+    led_buffer[i].R = r;
+    led_buffer[i].G = g;
+    led_buffer[i].B = b;
   }
   np_write();
 }

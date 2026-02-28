@@ -25,4 +25,23 @@ void led_set(int index, uint8_t r, uint8_t g, uint8_t b);
  */
 void led_clear_all(void);
 
+/**
+ * @brief Desenha um número de 0 a 9 na matriz 5x5.
+ *
+ * @param num O número a ser desenhado (0 a 9)
+ * @param r Componente Vermelho
+ * @param g Componente Verde
+ * @param b Componente Azul
+ */
+void led_matrix_draw_number(uint8_t num, uint8_t r, uint8_t g, uint8_t b);
+
+/**
+ * @brief Preenche toda a matriz com uma cor fixa.
+ *
+ * @param r Componente Vermelho
+ * @param g Componente Verde
+ * @param b Componente Azul
+ */
+void led_matrix_set_all(uint8_t r, uint8_t g, uint8_t b);
+
 #endif // WS2812_H

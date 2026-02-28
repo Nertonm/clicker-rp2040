@@ -73,12 +73,40 @@ int main(void) {
 
     if (count_a != last_a || count_b != last_b) {
       printf("[BTN] A: %u | B: %u\n", count_a, count_b);
+
+      // Atualiza o display OLED com o contador do botão A
+      char buf[32];
+      sprintf(buf, "Button A: %u", count_a);
+      display_clear();
+      display_text(0, 0, "Counter Status");
+      display_text(2, 0, buf);
+      display_show();
+
+      // Atualiza a matriz de LEDs (US-03 aprimorada)
+      uint8_t digito = count_a % 10;
+
+      // Se for múltiplo de 10 (milestone), pisca dourado e mantém o 0 dourado
+      if (digito == 0 && count_a > 0) {
+        // Blink duplo dourado em toda a matriz (suave via driver)
+        for (int j = 0; j < 2; j++) {
+          led_matrix_set_all(100, 80, 0);
+          sleep_ms(150);
+          led_clear_all();
+          sleep_ms(100);
+        }
+        // Mostra o número 0 em dourado
+        led_matrix_draw_number(0, 100, 80, 0);
+      } else {
+        // Agora com o driver limitando, valor 30 fica muito suave
+        led_matrix_draw_number(digito, 30, 30, 30);
+      }
+
       last_a = count_a;
       last_b = count_b;
 
-      // Feedback visual e sonoro rápido ao apertar botão
-      led_set(12, 0, 0, 100);
-      buzzer_tone(2000, 20); // 2kHz por 20ms (clique discreto)
+      // Feedback visual muito fraco ao apertar botão (LED central)
+      led_set(12, 0, 0, 10);
+      buzzer_tone(2000, 20);
       sleep_ms(50);
       led_set(12, 0, 0, 0);
     }
