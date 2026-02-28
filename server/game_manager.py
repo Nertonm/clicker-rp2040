@@ -4,11 +4,12 @@ RATE_LIMIT = 50
 MILESTONES = [100, 500, 1000, 5000, 10000]
 
 class GameManager():
-    def __init__(self, node_registry, lamport_clock, lock=None):
+    def __init__(self, node_registry, game_repo, lamport_clock, lock=None):
         self.global_score = 0
-        self.nodes = {} # {node_id: {"last_ts": float, "score": int, "powerup_expire": float, "multiplier": int}}
+        self.nodes = {} 
         self.milestones_done = set()
         self.node_registry = node_registry
+        self.game_repo = game_repo
         self.lamport_clock = lamport_clock
         self.lock = lock
 
@@ -85,7 +86,7 @@ class GameManager():
         node["score"] += actual_clicks
         self.global_score += actual_clicks
         
-        await self.node_registry.update_score(node_id, node["score"])
+        await self.game_repo.update_score(node_id, node["score"])
         lamport_ts = await self.lamport_clock.update(node_id, last_known_lamport_ts)
         
         # Detecção de Milestones (Pode cruzar múltiplos marcos)
@@ -94,9 +95,9 @@ class GameManager():
             if m not in self.milestones_done and before_global < m <= self.global_score:
                 self.milestones_done.add(m)
                 milestones_reached.append(m)
-                await self.node_registry.insert_milestone(m, node_id, lamport_ts, now)
+                await self.game_repo.insert_milestone(m, node_id, lamport_ts, now)
 
-        await self.node_registry.insert_event(node_id, clicks, accepted, rate_exceeded, lamport_ts)
+        await self.game_repo.insert_event(node_id, clicks, accepted, rate_exceeded, lamport_ts)
 
         response = {
             "status": "RATE_EXCEEDED" if rate_exceeded else "SUCCESS",
@@ -123,7 +124,7 @@ class GameManager():
         await self.node_registry.load_from_db()
         await self.node_registry.update_status(node_id, "SYNCING")
         
-        db_node = await self.node_registry.get_node_last_seen_score(node_id)
+        db_node = await self.game_repo.get_node_last_seen_score(node_id)
         node = self._get_node_data(node_id)
         node["score"] = db_node["score"]
         
@@ -132,7 +133,7 @@ class GameManager():
         node["score"] += accepted
         self.global_score += accepted
         
-        await self.node_registry.update_score(node_id, node["score"])
+        await self.game_repo.update_score(node_id, node["score"])
         lamport_ts = await self.lamport_clock.update(node_id, last_known_lamport_ts)
         
         milestones_reached = []
@@ -140,9 +141,9 @@ class GameManager():
             if m not in self.milestones_done and before_global < m <= self.global_score:
                 self.milestones_done.add(m)
                 milestones_reached.append(m)
-                await self.node_registry.insert_milestone(m, node_id, lamport_ts, now)
+                await self.game_repo.insert_milestone(m, node_id, lamport_ts, now)
 
-        await self.node_registry.insert_event(node_id, accumulated_clicks, accepted, False, lamport_ts)
+        await self.game_repo.insert_event(node_id, accumulated_clicks, accepted, False, lamport_ts)
         await self.node_registry.update_status(node_id, "ACTIVE")
 
         return {

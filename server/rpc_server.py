@@ -5,6 +5,7 @@ import datetime
 import traceback
 from game_manager import GameManager
 from node_registry import NodeRegistry
+from game_repository import GameRepository
 from lamport_clock import LamportClock
 import db
 
@@ -30,9 +31,10 @@ def log_structured(node_id, method, processing_time_ms):
     print(json.dumps(log_entry), flush=True)
 
 class RPCDispatcher:
-    def __init__(self, game_manager, node_registry):
+    def __init__(self, game_manager, node_registry, game_repo):
         self.game_manager = game_manager
         self.node_registry = node_registry
+        self.game_repo = game_repo
         self.handlers = {
             "get_active_nodes": self.node_registry.get_active_nodes,
             "add_clicks": self.game_manager.add_clicks,
@@ -40,7 +42,7 @@ class RPCDispatcher:
             "activate_powerup": self.game_manager.activate_powerup,
             "register_node": self.node_registry.register_node,
             "heartbeat": self.node_registry.heartbeat,
-            "get_nodes_scores": self.node_registry.get_nodes_scores,
+            "get_nodes_scores": self.game_repo.get_nodes_scores,
             "set_processing_delay": self.set_processing_delay  # Adicionado conforme requisito de runtime
         }
 
@@ -155,8 +157,9 @@ async def main():
     
     clock = LamportClock()
     registry = NodeRegistry(clock)
-    manager = GameManager(registry, clock, lock=game_lock) # Lock injetado
-    dispatcher = RPCDispatcher(manager, registry)
+    game_repo = GameRepository()
+    manager = GameManager(registry, game_repo, clock, lock=game_lock) # Repos injetados
+    dispatcher = RPCDispatcher(manager, registry, game_repo)
 
     # Inicia o servidor TCP assíncrono
     server = await asyncio.start_server(
