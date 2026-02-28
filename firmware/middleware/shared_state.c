@@ -54,6 +54,12 @@ uint32_t shared_state_take_pending_clicks(void) {
   return val;
 }
 
+void shared_state_restore_clicks(uint32_t n) {
+  LOCK_STATE();
+  state.pending_clicks += n;
+  UNLOCK_STATE();
+}
+
 uint32_t shared_state_get_local_score(void) {
   LOCK_STATE();
   uint32_t val = state.local_score;

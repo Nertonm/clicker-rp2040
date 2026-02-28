@@ -13,6 +13,24 @@
 
 #include "hardware_config.h"
 
+/**
+ * @brief Simula o envio de cliques via RPC.
+ * Retorna true para sucesso, false para falha simulada.
+ */
+bool send_clicks_rpc(uint32_t clicks) {
+  static uint32_t attempt = 0;
+  attempt++;
+
+  // Simula uma falha a cada 3 tentativas para testar o restore
+  if (attempt % 3 == 0) {
+    printf("[RPC] Simulated FAILURE for %u clicks\n", clicks);
+    return false;
+  }
+
+  printf("[RPC] Success: sent %u clicks\n", clicks);
+  return true;
+}
+
 int main(void) {
   stdio_init_all();
 
@@ -56,35 +74,68 @@ int main(void) {
     }
   }
 
-  // Variável local para acumular o placar processado
-  uint32_t local_score_total = 0;
+  // Placar local acumulado apenas após confirmação do "servidor"
+  uint32_t local_score_confirmed = 0;
 
   // Lança o Core 1 para cuidar do display
   multicore_launch_core1(core1_display_entry);
 
   printf("\n[MAIN] Entrando no loop principal...\n");
 
+  static uint32_t last_logged_pending = 0;
+  static uint32_t ms_since_last_rpc_attempt = 0;
+  const uint32_t RPC_COOLDOWN_MS = 1000; // 1s de cooldown após falha
+
   while (true) {
-    // Core 0 consome cliques pendentes de forma atômica (US-04)
-    uint32_t pending = shared_state_take_pending_clicks();
+    uint32_t current_pending = shared_state_get_pending_clicks();
 
-    if (pending > 0) {
-      local_score_total += pending;
-      // No futuro, isso será enviado via RPC e o servidor retornará o
-      // global_score
-      shared_state_set_local_score(local_score_total);
+    if (current_pending > last_logged_pending && current_pending > 0) {
+      printf("[BTN_MONITOR] pending_clicks cresceu para: %u\n",
+             current_pending);
+      last_logged_pending = current_pending;
+    } else if (current_pending == 0) {
+      last_logged_pending = 0;
+    }
 
-      printf("[BTN] Consumed: %u | Total: %u\n", pending, local_score_total);
+    if (ms_since_last_rpc_attempt >= RPC_COOLDOWN_MS) {
+      // Core 0 consome cliques pendentes de forma atômica (US-04)
+      uint32_t batch_clicks = shared_state_take_pending_clicks();
 
-      // Sinaliza eventos para o Core 1 processar o LED para evitar race
-      // condition no PIO
-      if (local_score_total % 10 == 0 && local_score_total > 0) {
-        shared_state_set_milestone_triggered(true);
-      } else {
-        shared_state_set_led_flash_requested(true);
+      if (batch_clicks > 0) {
+        printf("[RPC_TX] Consumindo batch atômico de %u cliques. Iniciando "
+               "envio...\n",
+               batch_clicks);
+
+        if (send_clicks_rpc(batch_clicks)) {
+          // Sucesso: atualiza placar e feedback
+          local_score_confirmed += batch_clicks;
+          shared_state_set_local_score(local_score_confirmed);
+
+          printf("[RPC_OK] Placar confirmado atualizado para: %u\n",
+                 local_score_confirmed);
+
+          // Sinaliza eventos para o Core 1
+          if (local_score_confirmed % 10 == 0 && local_score_confirmed > 0) {
+            shared_state_set_milestone_triggered(true);
+          } else {
+            shared_state_set_led_flash_requested(true);
+          }
+          buzzer_tone(2000, 20);
+        } else {
+          // Falha: restaura cliques para o próximo batch (merge)
+          shared_state_restore_clicks(batch_clicks);
+          printf("[RPC_FAIL] Restore crítico: devolvendo %u cliques ao pool. "
+                 "(Merge)\n",
+                 batch_clicks);
+
+          ms_since_last_rpc_attempt = 0; // Inicia cooldown
+
+          // Opcional: feedback de erro (tom mais grave)
+          buzzer_tone(500, 50);
+        }
       }
-
-      buzzer_tone(2000, 20);
+    } else {
+      ms_since_last_rpc_attempt += 10;
     }
 
     // Loop principal leve não bloqueia, não trava

@@ -8,16 +8,16 @@ O firmware tem três atores principais que competem pelo estado do sistema, cada
 
 2. Loop Principal
   * É o while(1) do main.c, onde o programa passa a maior parte do tempo. É o único ator que conhece a rede e roda continuamente.
-  * Cada ciclo coleta os cliques, aplica o timestamp Lamport e os envia ao servidor via RPC, também gerencia Wifi, reconexões, e outras tarefas.
+  * Cada ciclo consome um lote de cliques (`take`), tenta enviá-lo via RPC e, em caso de erro, devolve o lote ao estado compartilhado (`restore`) para re-sincronização futura.
   * Restrições: Não pode acessar OLED, led ou buzzer diretamente.
   * Pode ser interrompido pela IRQ do botão A.
 
     Ações no estado (via API shared_state_*):
 
     lê e zera pending_clicks (via shared_state_take_pending_clicks)
+    restaura cliques em caso de falha (via shared_state_restore_clicks)
     escreve global_score (via shared_state_set_global_score)
-    escreve local_score (via shared_state_set_local_score)
-    escreve node_scores[] (via shared_state_set_node_scores)
+    escreve local_score (apenas após confirmação da rede)
     seta connection_status (via shared_state_set_connection_status)
     gerencia current_lamport_ts (via shared_state_increment_lamport_ts)
 
@@ -34,6 +34,6 @@ O firmware tem três atores principais que competem pelo estado do sistema, cada
     consome led_flash_requested (via shared_state_get/set_led_flash_requested)
 
 Fluxo de dados:
-Botão A pressionado -> IRQ -> shared_state_increment_pending_clicks() -> Aquisição de Spinlock -> Clique armazenado -> Loop Principal (Core 0) -> shared_state_take_pending_clicks() -> aquisição segura -> zeramento atômico -> atualiza placar e envia ao servidor -> recebe resposta -> atualiza scores/status -> Loop de Apresentação (Core 1) -> lê scores/status via getters -> atualiza display, etc.
+Botão A pressionado -> IRQ -> shared_state_increment_pending_clicks() -> clique armazenado -> Loop Principal (Core 0) -> shared_state_take_pending_clicks() (Batch) -> tenta RPC -> [SUCESSO: atualiza Scores | FALHA: restore_clicks()] -> Loop de Apresentação (Core 1) -> lê estado -> atualiza display.
 
 Não é apenas organização já que se o OLED apresentar algum valor errado o bug está no core 1 ou na leitura do spinlock, se o clique se perder o bug esta no IRQ ou no clicks do Core 0, se a rede trava o bug está no core 0. Com a API centralizada e o Spinlock de hardware, isolamos completamente o estado das condições de corrida entre núcleos.

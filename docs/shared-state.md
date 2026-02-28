@@ -14,5 +14,9 @@ O Estado Compartilhado é o componente de middleware responsável por centraliza
 3. Fluxo de Consumo Atômico
    * Para campos sensíveis como `pending_clicks`, a API fornece a função `shared_state_take_pending_clicks()`, que lê o valor atual e zera o contador em uma única sessão crítica, garantindo que nenhum clique seja processado duas vezes ou perdido entre a leitura e a limpeza.
 
+4. Recuperação em Caso de Falha (Take-and-Restore)
+   * Visando a confiabilidade na rede, o sistema implementa uma semântica de "restauração": se o Core 0 consome um lote de cliques mas falha ao enviá-los ao servidor (RPC), ele utiliza `shared_state_restore_clicks(n)` para devolver esses cliques ao pool de pendentes.
+   * Esses cliques restaurados são somados (merge) atomicamente a quaisquer novos cliques que tenham chegado via IRQ no intervalo, garantindo que o placar local e global eventualmente reflitam a realidade sem perdas.
+
 Fluxo de Dados Protegido:
-Evento (IRQ/Network) -> API Set -> Aquisição de Spinlock -> Escrita na Memória -> Liberação de Spinlock -> API Get (Outro Core) -> Aquisição de Spinlock -> Leitura Segura -> Apresentação/Lógica.
+Evento (IRQ) -> Incremento -> Take (Core 0) -> Tentativa RPC -> [Sucesso: Confirma Placar | Falha: Restore -> Merge] -> Get (Core 1) -> Apresentação.

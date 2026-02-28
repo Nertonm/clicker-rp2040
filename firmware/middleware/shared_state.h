@@ -34,6 +34,8 @@ uint32_t shared_state_get_pending_clicks(void);
 void shared_state_increment_pending_clicks(void);
 uint32_t shared_state_take_pending_clicks(
     void); // Lê e zera atomicamente (Consumo Core 0)
+void shared_state_restore_clicks(
+    uint32_t n); // Restaura cliques (Merge em caso de falha de rede)
 
 // Scores
 uint32_t shared_state_get_local_score(void);
