@@ -1,17 +1,16 @@
-import asyncio
 import time
 
 RATE_LIMIT = 50
 MILESTONES = [100, 500, 1000, 5000, 10000]
 
 class GameManager():
-    def __init__(self, node_registry, lamport_clock):
-        self.lock = asyncio.Lock()
+    def __init__(self, node_registry, lamport_clock, lock=None):
         self.global_score = 0
         self.nodes = {}
         self.milestones_done = set()
         self.node_registry = node_registry
         self.lamport_clock = lamport_clock
+        self.lock = lock
 
     # Ativa power-up, caso já não esteja ativo.
 
@@ -40,8 +39,13 @@ class GameManager():
     # Adiciona clicks ao score.
 
     async def add_clicks(self, node_id, clicks, last_known_lamport_ts):
-        async with self.lock:
-            now = time.time()
+        if self.lock:
+            async with self.lock:
+                return await self._add_clicks_logic(node_id, clicks, last_known_lamport_ts)
+        return await self._add_clicks_logic(node_id, clicks, last_known_lamport_ts)
+
+    async def _add_clicks_logic(self, node_id, clicks, last_known_lamport_ts):
+        now = time.time()
             try:
                 last = await self.lamport_clock.get_last_by_node(node_id)
             except KeyError:
@@ -109,8 +113,13 @@ class GameManager():
     # Sincroniza cliques acumulados com servidor offline.
 
     async def sync_offline(self, node_id, accumulated_clicks, last_known_lamport_ts):
-        async with self.lock:
-            now = time.time()
+        if self.lock:
+            async with self.lock:
+                return await self._sync_offline_logic(node_id, accumulated_clicks, last_known_lamport_ts)
+        return await self._sync_offline_logic(node_id, accumulated_clicks, last_known_lamport_ts)
+
+    async def _sync_offline_logic(self, node_id, accumulated_clicks, last_known_lamport_ts):
+        now = time.time()
             # NodeRegistry recupera dados do banco de dados.
             await self.node_registry.load_from_db()
             # Atualiza status do nó.

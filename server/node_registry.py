@@ -1,6 +1,5 @@
 import time
 import db
-import asyncio
 
 class NodeRegistry:
     def __init__(self, lamport_clock):
@@ -100,13 +99,6 @@ class NodeRegistry:
 
     async def get_nodes_scores(self):
         return await db.get_nodes_scores()
-
-    # Loop que executa mark_inactive a cada 10 segundos.
-
-    async def loop_detect_inactive(self):
-        while True:
-            await asyncio.sleep(10)
-            await self.mark_inactive()
 
     # Insere evento no banco de dados.
 
