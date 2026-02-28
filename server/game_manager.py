@@ -63,7 +63,7 @@ class GameManager():
             accepted = clicks if rate <= RATE_LIMIT else allowed
             rate_exceeded = rate > RATE_LIMIT
             self.nodes[node_id]["score"] += accepted
-            await self.node_registry.update_score(node_id, accepted)
+            await self.node_registry.update_score(node_id, self.nodes[node_id]["score"])
             self.nodes[node_id]["last_ts"] = now
             self.global_score += accepted
             # Atualiza lamport do nó.
