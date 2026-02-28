@@ -6,37 +6,32 @@ MILESTONES = [100, 500, 1000, 5000, 10000]
 class GameManager():
     def __init__(self, node_registry, lamport_clock, lock=None):
         self.global_score = 0
-        self.nodes = {}
+        self.nodes = {} # {node_id: {"last_ts": float, "score": int, "powerup_expire": float, "multiplier": int}}
         self.milestones_done = set()
         self.node_registry = node_registry
         self.lamport_clock = lamport_clock
         self.lock = lock
 
-    # Ativa power-up, caso já não esteja ativo.
+    def _get_node_data(self, node_id):
+        if node_id not in self.nodes:
+            self.nodes[node_id] = {
+                "last_ts": 0,
+                "score": 0,
+                "powerup_expire": 0,
+                "multiplier": 1
+            }
+        return self.nodes[node_id]
 
     def activate_powerup(self, node_id):
         now = time.time()
-        if node_id not in self.nodes:
-            self.nodes[node_id] = {
-                "last_ts": now,
-                "score": 0,
-                "powerup_expire": 0,
-                "powerup_active": False
-            }
-        if not self.nodes[node_id]["powerup_active"]:
-            self.nodes[node_id]["powerup_expire"] = now
-            self.nodes[node_id]["powerup_active"] = True
-            response = {
-                "status": "SUCCESS",
-                "time_remaining": 10
-            }
-            return response
-        response = {
-            "error": "ALREADY_ACTIVE"
-        }
-        return response
-
-    # Adiciona clicks ao score.
+        node = self._get_node_data(node_id)
+        
+        if node["powerup_expire"] < now:
+            node["powerup_expire"] = now + 10
+            node["multiplier"] = 3
+            return {"status": "SUCCESS", "time_remaining": 10}
+        
+        return {"error": "ALREADY_ACTIVE"}
 
     async def add_clicks(self, node_id, clicks, last_known_lamport_ts):
         if self.lock:
@@ -46,71 +41,74 @@ class GameManager():
 
     async def _add_clicks_logic(self, node_id, clicks, last_known_lamport_ts):
         now = time.time()
-            try:
-                last = await self.lamport_clock.get_last_by_node(node_id)
-            except KeyError:
-                last = 0
-            # Checa se lamport do nó não viola o relógio global. Caso sim, retorna erro e lamport correto.
-            if last_known_lamport_ts <= last:
-                lamport_ts = await self.lamport_clock.update(node_id, last_known_lamport_ts)
-                response = {
-                    "error": "LAMPORT_VIOLATION",
-                    "lamport_ts": lamport_ts
-                }
-                return response
-            if node_id not in self.nodes:
-                self.nodes[node_id] = {
-                    "last_ts": now,
-                    "score": 0,
-                    "powerup_expire": 0,
-                    "powerup_active": False
-                }
-            # Se power-up estiver ativo, cliques são multiplicados por 3. Power-up é desativado caso tenha se passado 10 segundos.
-            if self.nodes[node_id]["powerup_active"] and (now - self.nodes[node_id]["powerup_expire"]) < 10:
-                clicks = clicks * 3
-            else:
-                self.nodes[node_id]["powerup_active"] = False
-            # Existe um limite de cliques por segundo, caso a taxa de cliques enviados ultrapasse-o é necessário limitar cliques aceitos.
-            delta = now - self.nodes[node_id]["last_ts"]
-            rate = int(clicks / delta) if delta > 0 else clicks
-            allowed = int(RATE_LIMIT * delta) if delta > 0 else RATE_LIMIT
-            accepted = clicks if rate <= RATE_LIMIT else allowed
-            rate_exceeded = rate > RATE_LIMIT
-            self.nodes[node_id]["score"] += accepted
-            await self.node_registry.update_score(node_id, self.nodes[node_id]["score"])
-            self.nodes[node_id]["last_ts"] = now
-            self.global_score += accepted
-            # Atualiza lamport do nó.
-            lamport_ts = await self.lamport_clock.update(node_id, last_known_lamport_ts)
-            milestone = None
-            # Checa se algum milestone foi atingido.
-            for m in MILESTONES:
-                if self.global_score >= m and m not in self.milestones_done:
-                    self.milestones_done.add(m)
-                    milestone = m
-                    break
-            # Registra evento.
-            await self.node_registry.insert_event(node_id, clicks, accepted, rate_exceeded, lamport_ts)
-            # Resposta padrão.
-            response = {
-                "clicks": clicks,
-                "global_score": self.global_score,
-                "node_score": self.nodes[node_id]["score"],
-                "lamport_ts": lamport_ts
-            }
-            if rate_exceeded:
-                # Adicional caso a taxa ultrapasse limite.
-                response["error"] = "RATE_EXCEEDED"
-                response["accepted_partial"] = accepted
-            if milestone:
-                # Adicional caso milestone seja alcançado.
-                response["milestone"] = True
-                response["milestone_value"] = milestone
-                # Registra milestone.
-                await self.node_registry.insert_milestone(milestone, node_id, lamport_ts, now)
-            return response
+        
+        # Sincronização causal (Lamport)
+        last_ts = await self.lamport_clock.get_last_by_node(node_id)
+        if last_known_lamport_ts <= last_ts:
+            curr_lamport = await self.lamport_clock.update(node_id, last_known_lamport_ts)
+            return {"error": "LAMPORT_VIOLATION", "lamport_ts": curr_lamport}
 
-    # Sincroniza cliques acumulados com servidor offline.
+        node = self._get_node_data(node_id)
+        
+        # Rate Limiting
+        delta = now - node["last_ts"]
+        node["last_ts"] = now
+        
+        # Delta <= 0: Ocorre em batidas de timestamp idênticas ou muito próximas.
+        # Aplicamos uma janela mínima (20ms) para não bloquear completamente o tráfego legítimo
+        # mas ainda assim desencorajar spam no mesmo milissegundo.
+        if delta <= 0:
+            allowed = RATE_LIMIT * 0.02 
+        else:
+            allowed = int(RATE_LIMIT * delta)
+            
+        accepted = min(clicks, allowed) if allowed > 0 else 0
+
+        # Delta > 3600 (1 hora): Heurística para "Reset" ou primeira conexão após longo tempo.
+        # Evita que um nó que ficou offline seja penalizado injustamente ou gere overflow
+        # no primeiro batch de reconexão.
+        if delta > 3600:
+            accepted = clicks
+
+        rejected = clicks - accepted
+        rate_exceeded = rejected > 0
+
+        # Aplicação de Multiplicador (Power-up)
+        actual_clicks = accepted
+        if node["powerup_expire"] > now:
+            actual_clicks = accepted * node["multiplier"]
+        else:
+            node["multiplier"] = 1
+
+        # Atualização de Scores
+        before_global = self.global_score
+        node["score"] += actual_clicks
+        self.global_score += actual_clicks
+        
+        await self.node_registry.update_score(node_id, node["score"])
+        lamport_ts = await self.lamport_clock.update(node_id, last_known_lamport_ts)
+        
+        # Detecção de Milestones (Pode cruzar múltiplos marcos)
+        milestones_reached = []
+        for m in MILESTONES:
+            if m not in self.milestones_done and before_global < m <= self.global_score:
+                self.milestones_done.add(m)
+                milestones_reached.append(m)
+                await self.node_registry.insert_milestone(m, node_id, lamport_ts, now)
+
+        await self.node_registry.insert_event(node_id, clicks, accepted, rate_exceeded, lamport_ts)
+
+        response = {
+            "status": "RATE_EXCEEDED" if rate_exceeded else "SUCCESS",
+            "accepted_clicks": accepted,
+            "rejected_clicks": rejected,
+            "global_score": self.global_score,
+            "node_score": node["score"],
+            "lamport_ts": lamport_ts,
+            "milestone": len(milestones_reached) > 0,
+            "milestone_value": milestones_reached[-1] if milestones_reached else None
+        }
+        return response
 
     async def sync_offline(self, node_id, accumulated_clicks, last_known_lamport_ts):
         if self.lock:
@@ -119,56 +117,43 @@ class GameManager():
         return await self._sync_offline_logic(node_id, accumulated_clicks, last_known_lamport_ts)
 
     async def _sync_offline_logic(self, node_id, accumulated_clicks, last_known_lamport_ts):
+        # Sync offline geralmente pula o rate limiting pois são cliques históricos legítimos
+        # Mas a lógica de milestones deve ser aplicada.
         now = time.time()
-            # NodeRegistry recupera dados do banco de dados.
-            await self.node_registry.load_from_db()
-            # Atualiza status do nó.
-            await self.node_registry.update_status(node_id, "SYNCING")
-            # Recupera últimos score e last_seen salvos do nó.
-            node = await self.node_registry.get_node_last_seen_score(node_id)
-            if node_id not in self.nodes:
-                self.nodes[node_id] = {
-                    "last_ts": node["last_seen"],
-                    "score": node["score"],
-                    "powerup_expire": 0,
-                    "powerup_active": False
-                }
-            # Mesmo cálculo de cliques permitidos.
-            delta = now - node["last_seen"]
-            rate = int(accumulated_clicks / delta) if delta > 0 else accumulated_clicks
-            allowed = int(RATE_LIMIT * delta) if delta > 0 else RATE_LIMIT
-            accepted = accumulated_clicks if rate <= RATE_LIMIT else allowed
-            rate_exceeded = rate > RATE_LIMIT
-            self.nodes[node_id]["score"] += accepted
-            await self.node_registry.update_score(node_id, self.nodes[node_id]["score"])
-            self.nodes[node_id]["last_ts"] = now
-            self.global_score += accepted
-            # Relógio lamport global é atualizado com base no último lamport visto do nó.
-            lamport_ts = await self.lamport_clock.update(node_id, last_known_lamport_ts)
-            # Registra evento.
-            await self.node_registry.insert_event(node_id, accumulated_clicks, accepted, rate_exceeded, lamport_ts)
-            milestone = None
-            for m in MILESTONES:
-                if self.global_score >= m and m not in self.milestones_done:
-                    milestone = m
-                    self.milestones_done.add(m)
-                    # Registra milestone.
-                    await self.node_registry.insert_milestone(m, node_id, lamport_ts, now)
-                    break
-            await self.node_registry.update_status(node_id, "ACTIVE")
-            #Respostas padrões.
-            response = {
-                "clicks": accumulated_clicks,
-                "global_score": self.global_score,
-                "node_score": self.nodes[node_id]["score"],
-                "lamport_ts": lamport_ts
-            }
-            if rate_exceeded:
-                response["error"] = "RATE_EXCEEDED"
-                response["accepted_partial"] = accepted
-            if milestone:
-                response["milestone"] = True
-                response["milestone_value"] = milestone
-            return response
+        await self.node_registry.load_from_db()
+        await self.node_registry.update_status(node_id, "SYNCING")
+        
+        db_node = await self.node_registry.get_node_last_seen_score(node_id)
+        node = self._get_node_data(node_id)
+        node["score"] = db_node["score"]
+        
+        before_global = self.global_score
+        accepted = accumulated_clicks # Histórico
+        node["score"] += accepted
+        self.global_score += accepted
+        
+        await self.node_registry.update_score(node_id, node["score"])
+        lamport_ts = await self.lamport_clock.update(node_id, last_known_lamport_ts)
+        
+        milestones_reached = []
+        for m in MILESTONES:
+            if m not in self.milestones_done and before_global < m <= self.global_score:
+                self.milestones_done.add(m)
+                milestones_reached.append(m)
+                await self.node_registry.insert_milestone(m, node_id, lamport_ts, now)
+
+        await self.node_registry.insert_event(node_id, accumulated_clicks, accepted, False, lamport_ts)
+        await self.node_registry.update_status(node_id, "ACTIVE")
+
+        return {
+            "status": "SUCCESS",
+            "accepted_clicks": accepted,
+            "rejected_clicks": 0,
+            "global_score": self.global_score,
+            "node_score": node["score"],
+            "lamport_ts": lamport_ts,
+            "milestone": len(milestones_reached) > 0,
+            "milestone_value": milestones_reached[-1] if milestones_reached else None
+        }
 
 
