@@ -1,4 +1,5 @@
 #include "drivers/display/display.h"
+#include "drivers/display/ws2812.h"
 #include "hardware/adc.h"
 // #include "hardware/pwm.h" // Remoção de header não utilizado
 #include "middleware/button_handler.h"
@@ -26,6 +27,11 @@ int main(void) {
   display_show();
 
   button_handler_init();
+
+  // Teste da Matriz de LEDs (US-03)
+  led_matrix_init();
+  led_set(0, 150, 0, 0);  // Vermelho no primeiro LED (canto inferior direito)
+  led_set(24, 0, 0, 150); // Azul no último LED (canto superior esquerdo)
 
   // Inicializa ADC para evitar travamento no adc_read()
   adc_init();
@@ -65,6 +71,23 @@ int main(void) {
       printf("[BTN] A: %u | B: %u\n", count_a, count_b);
       last_a = count_a;
       last_b = count_b;
+
+      // Feedback visual rápido ao apertar botão (Azul)
+      led_set(12, 0, 0, 100);
+      sleep_ms(50);
+      led_set(12, 0, 0, 0);
+    }
+
+    // Pisca o LED central a cada ~1s para indicar "estamos vivos"
+    static uint32_t last_blink = 0;
+    if (to_ms_since_boot(get_absolute_time()) - last_blink > 1000) {
+      last_blink = to_ms_since_boot(get_absolute_time());
+      static bool state = false;
+      state = !state;
+      if (state)
+        led_set(12, 20, 20, 20); // Branco fraquinho
+      else
+        led_set(12, 0, 0, 0);
     }
 
     // Loop principal leve — não bloqueia, não trava

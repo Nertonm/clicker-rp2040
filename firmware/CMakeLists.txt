@@ -41,13 +41,15 @@ add_executable(firmware
     middleware/shared_state.c
     drivers/display/display.c
     drivers/display/ssd1306_i2c.c
+    drivers/display/ws2812.c
 )
 
 pico_set_program_name(firmware "firmware")
 pico_set_program_version(firmware "0.1")
 
-# Generate PIO header
+# Generate PIO headers
 pico_generate_pio_header(firmware ${CMAKE_CURRENT_LIST_DIR}/blink.pio)
+pico_generate_pio_header(firmware ${CMAKE_CURRENT_LIST_DIR}/drivers/display/ws2812.pio)
 
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(firmware 1)
