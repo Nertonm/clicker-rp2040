@@ -42,7 +42,10 @@ class GameManager():
     async def add_clicks(self, node_id, clicks, last_known_lamport_ts):
         async with self.lock:
             now = time.time()
-            last = await self.lamport_clock.get_last_by_node(node_id)
+            try:
+                last = await self.lamport_clock.get_last_by_node(node_id)
+            except KeyError:
+                last = 0
             # Checa se lamport do nó não viola o relógio global. Caso sim, retorna erro e lamport correto.
             if last_known_lamport_ts <= last:
                 lamport_ts = await self.lamport_clock.update(node_id, last_known_lamport_ts)
