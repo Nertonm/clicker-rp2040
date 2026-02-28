@@ -1,3 +1,4 @@
+#include "audio/buzzer.h"
 #include "drivers/display/display.h"
 #include "drivers/display/ws2812.h"
 #include "hardware/adc.h"
@@ -27,6 +28,9 @@ int main(void) {
   display_show();
 
   button_handler_init();
+
+  // Teste do Buzzer (US-03 adjacente)
+  buzzer_init();
 
   // Teste da Matriz de LEDs (US-03)
   led_matrix_init();
@@ -72,8 +76,9 @@ int main(void) {
       last_a = count_a;
       last_b = count_b;
 
-      // Feedback visual rápido ao apertar botão (Azul)
+      // Feedback visual e sonoro rápido ao apertar botão
       led_set(12, 0, 0, 100);
+      buzzer_tone(2000, 20); // 2kHz por 20ms (clique discreto)
       sleep_ms(50);
       led_set(12, 0, 0, 0);
     }

@@ -42,6 +42,7 @@ add_executable(firmware
     drivers/display/display.c
     drivers/display/ssd1306_i2c.c
     drivers/display/ws2812.c
+    audio/buzzer.c
 )
 
 pico_set_program_name(firmware "firmware")
@@ -62,6 +63,7 @@ target_link_libraries(firmware
 # Add the standard include files to the build
 target_include_directories(firmware PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/audio
         ${CMAKE_CURRENT_LIST_DIR}/drivers/display
         ${CMAKE_CURRENT_LIST_DIR}/middleware
 )
