@@ -187,7 +187,6 @@ async def get_milestones_session(session_started_ts):
         )
         rows = await cursor.fetchall()
         await cursor.close()
-        if rows is None: return None
         return [
             {
                 "milestone_value": row[0],
