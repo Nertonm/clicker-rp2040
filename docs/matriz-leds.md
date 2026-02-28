@@ -8,7 +8,8 @@ A matriz de 25 LEDs (5x5) é o componente de feedback visual em tempo real, util
 
 2. Driver C (drivers/display/ws2812)
    * Gerencia a interface de software, mantendo um buffer local de pixels para permitir atualizações parciais ou totais.
-   * Funções principais: `led_matrix_init()`, `led_set(index, r, g, b)` e `led_clear_all()`.
+   * **Controle de Brilho**: Implementa uma redução global de 16x via bit-shift (`>> 4`) antes do envio ao PIO, garantindo conforto visual no hardware BitDogLab.
+   * Funções principais: `led_matrix_init()`, `led_set(index, r, g, b)`, `led_matrix_draw_number(num, r, g, b)` e `led_matrix_set_all(r, g, b)`.
    * Restrições: Cada atualização envia a sequência completa de 25 pixels (GRB) para o hardware e aguarda um pulso de reset de ~300µs para garantir que os LEDs processem a cor.
 
 3. Integração com o Sistema
