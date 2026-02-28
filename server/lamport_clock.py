@@ -28,4 +28,8 @@ class LamportClock():
     # Retorna último relógio lamport do nó.
         
     async def get_last_by_node(self, node_id):
-        return self.nodes[node_id]["last_lamport"]
+        async with self.lock:
+            node = self.nodes.get(node_id)
+            if node is None:
+                return 0
+            return node["last_lamport"]
