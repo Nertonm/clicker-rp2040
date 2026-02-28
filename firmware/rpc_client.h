@@ -24,18 +24,8 @@ void rpc_client_set_server_fallback(void);
 bool rpc_client_send_clicks(uint32_t clicks);
 
 /**
- * Registra a ocorrência de uma falha de conexão simulada/real.
- * Ao atingir 5 seguidas, desabilita a flag de IP para provocar Rediscovey.
- */
-void rpc_client_register_failure(void);
-
-/**
- * Limpa o contador de falhas após um sucesso de envio RPC.
- */
-void rpc_client_register_success(void);
-
-/**
  * Retorna true se houver um IP configurado para envio de pacotes.
+ * Útil para saber se o client invalidou espontaneamente o endpoint.
  */
 bool rpc_client_has_server(void);
 

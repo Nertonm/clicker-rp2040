@@ -155,11 +155,18 @@ int main(void) {
                "envio...\n",
                batch_clicks);
 
-        // Rediscovery dinâmico: se atingiu limite de falhas, tentamos achar um
-        // novo servidor
+        // Isola a chamada real do cliente e monitora seu estado de validade
+        bool rpc_ok = false;
+        if (current_status == STATUS_ONLINE) {
+          rpc_ok = rpc_client_send_clicks(batch_clicks);
+        }
+
         if (current_status == STATUS_ONLINE && !rpc_client_has_server()) {
-          printf("[MAIN] Endpoint inoperante. Executando Rediscovery "
-                 "Automático...\n");
+          printf("[MAIN] Endpoint RPC invalidado por falhas. Rediscovery "
+                 "automático...\n");
+
+          shared_state_set_server_error_active(true);
+
           ip_addr_t disc_ip;
           uint16_t disc_port = 0;
           absolute_time_t deadline = make_timeout_time_ms(5000);
@@ -172,14 +179,14 @@ int main(void) {
             rpc_client_set_server_fallback();
             shared_state_set_fallback_in_use(true);
           }
+
+          shared_state_set_server_error_active(false);
         }
 
-        // Só envia RPC de fato se estivemos online e o rpc_client aprovar
-        if (current_status == STATUS_ONLINE &&
-            rpc_client_send_clicks(batch_clicks) &&
-            send_clicks_rpc(batch_clicks)) {
+        // Condiciona sucesso da rodada ao cliente validado + stub de
+        // processamento local
+        if (rpc_ok && send_clicks_rpc(batch_clicks)) {
           // Sucesso: atualiza placar e feedback
-          rpc_client_register_success();
           local_score_confirmed += batch_clicks;
           shared_state_set_local_score(local_score_confirmed);
 
@@ -194,8 +201,7 @@ int main(void) {
           }
           buzzer_tone(2000, 20);
         } else {
-          // Falha: restaura cliques para o próximo batch (merge)
-          rpc_client_register_failure();
+          // Falha (seja timeout do RPC client ou stub quebrando): restaura
           shared_state_restore_clicks(batch_clicks);
           printf("[RPC_FAIL] Restore crítico: devolvendo %u cliques ao pool. "
                  "(Merge)\n",

@@ -15,6 +15,7 @@ typedef struct {
   bool milestone_triggered;
   bool led_flash_requested;
   bool fallback_in_use;
+  bool server_error_active;
 } shared_state_t;
 
 static shared_state_t state;
@@ -25,6 +26,7 @@ void shared_state_init(void) {
   memset(&state, 0, sizeof(shared_state_t));
   state.connection_status = STATUS_CONNECTING;
   state.fallback_in_use = false;
+  state.server_error_active = false;
 
   // Aloca um spinlock de hardware
   int lock_num = spin_lock_claim_unused(true);
@@ -190,5 +192,18 @@ bool shared_state_get_fallback_in_use(void) {
 void shared_state_set_fallback_in_use(bool in_use) {
   LOCK_STATE();
   state.fallback_in_use = in_use;
+  UNLOCK_STATE();
+}
+
+bool shared_state_get_server_error_active(void) {
+  LOCK_STATE();
+  bool val = state.server_error_active;
+  UNLOCK_STATE();
+  return val;
+}
+
+void shared_state_set_server_error_active(bool active) {
+  LOCK_STATE();
+  state.server_error_active = active;
   UNLOCK_STATE();
 }

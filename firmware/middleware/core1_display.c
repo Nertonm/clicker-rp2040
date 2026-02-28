@@ -23,6 +23,8 @@ void core1_display_entry(void) {
 
     bool fallback = shared_state_get_fallback_in_use();
 
+    bool server_error = shared_state_get_server_error_active();
+
     char buf_score[20];
     char buf_status[20];
 
@@ -32,7 +34,9 @@ void core1_display_entry(void) {
     // Formata status de conexão
     switch (status) {
     case STATUS_ONLINE:
-      if (fallback) {
+      if (server_error) {
+        snprintf(buf_status, sizeof(buf_status), "SERVER FAIL");
+      } else if (fallback) {
         snprintf(buf_status, sizeof(buf_status), "FALLBACK IP");
       } else {
         snprintf(buf_status, sizeof(buf_status), "WIFI OK");
@@ -99,7 +103,11 @@ void core1_display_entry(void) {
       // imediatamente.
       if (!just_flashed) {
         if (hb_state) {
-          led_set(12, 4, 4, 4); // Branco de fundo/heartbeat
+          if (server_error) {
+            led_set(12, 15, 0, 0); // Vermelho forte: Rediscovering
+          } else {
+            led_set(12, 4, 4, 4); // Branco de fundo/heartbeat
+          }
         } else {
           led_set(12, 0, 0, 0);
         }

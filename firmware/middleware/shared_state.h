@@ -70,4 +70,8 @@ bool shared_state_take_led_flash_requested(void);
 bool shared_state_get_fallback_in_use(void);
 void shared_state_set_fallback_in_use(bool in_use);
 
+// Server Error State
+bool shared_state_get_server_error_active(void);
+void shared_state_set_server_error_active(bool active);
+
 #endif // SHARED_STATE_H
