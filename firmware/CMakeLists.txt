@@ -39,6 +39,7 @@ add_executable(firmware
     main.c
     middleware/button_handler.c
     middleware/shared_state.c
+    middleware/core1_display.c
     drivers/display/display.c
     drivers/display/ssd1306_i2c.c
     drivers/display/ws2812.c
@@ -57,8 +58,16 @@ pico_enable_stdio_uart(firmware 1)
 pico_enable_stdio_usb(firmware 1)
 
 # Add the standard library to the build
+# (pico_multicore adicionado para suportar o Core 1)
 target_link_libraries(firmware
-        pico_stdlib)
+        pico_stdlib
+        pico_multicore
+        hardware_i2c
+        hardware_pio
+        hardware_pwm
+        hardware_adc
+        pico_cyw43_arch_lwip_poll
+)
 
 # Add the standard include files to the build
 target_include_directories(firmware PRIVATE
@@ -68,15 +77,6 @@ target_include_directories(firmware PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/middleware
 )
 
-# Add any user requested libraries
-target_link_libraries(firmware 
-        hardware_i2c
-        hardware_pio
-        hardware_pwm
-        hardware_adc
-        pico_cyw43_arch_lwip_poll
-        pico_stdlib
-        )
 
 pico_add_extra_outputs(firmware)
 

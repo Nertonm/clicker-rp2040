@@ -4,11 +4,12 @@
 #include "hardware/adc.h"
 // #include "hardware/pwm.h" // Remoção de header não utilizado
 #include "middleware/button_handler.h"
+#include "middleware/core1_display.h"
 #include "middleware/shared_state.h"
 #include "pico/cyw43_arch.h"
+#include "pico/multicore.h"
 #include "pico/stdlib.h"
 #include "secrets_template.h"
-#include "ssd1306_i2c.h"
 #include <stdio.h>
 
 #include "hardware_config.h"
@@ -27,9 +28,6 @@ int main(void) {
   shared_state_init();
 
   display_init();
-  display_clear();
-  display_text(0, 0, "Hello World");
-  display_show();
 
   button_handler_init();
   buzzer_init();
@@ -63,6 +61,9 @@ int main(void) {
   // Variável local para acumular o placar processado
   uint32_t local_score_total = 0;
 
+  // Lança o Core 1 para cuidar do display
+  multicore_launch_core1(core1_display_entry);
+
   printf("\n[MAIN] Entrando no loop principal...\n");
 
   while (true) {
@@ -76,14 +77,6 @@ int main(void) {
       shared_state_set_local_score(local_score_total);
 
       printf("[BTN] Consumed: %u | Total: %u\n", pending, local_score_total);
-
-      // Atualiza o display OLED com o contador total
-      char buf[32];
-      sprintf(buf, "Placar: %u", local_score_total);
-      display_clear();
-      display_text(0, 0, "Counter Status");
-      display_text(2, 0, buf);
-      display_show();
 
       // Atualiza a matriz de LEDs (US-03 aprimorada)
       uint8_t digito = local_score_total % 10;
