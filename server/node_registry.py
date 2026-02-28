@@ -22,7 +22,7 @@ class NodeRegistry:
             self.nodes[node_id]["ip"] = ip
             self.nodes[node_id]["last_seen"] = now
             self.nodes[node_id]["status"] = "ACTIVE"
-        await db.update_node(node_id, ip, "ACTIVE", last_seen)
+        await db.update_node(node_id, ip, "ACTIVE", now)
         await self.lamport_clock.register(node_id)
 
     # Carrega valores armazenados no banco de dados em nodes.
