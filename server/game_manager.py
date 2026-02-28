@@ -26,7 +26,7 @@ class GameManager():
             }
             return response
         response = {
-            "error": "ALREADY_RUNNING"
+            "error": "ALREADY_ACTIVE"
         }
         return response
 
