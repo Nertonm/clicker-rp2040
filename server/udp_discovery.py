@@ -16,7 +16,7 @@ class DiscoveryProtocol(asyncio.DatagramProtocol):
     def datagram_received(self, data, addr):
         try:
             message = data.decode().strip()
-            if message.starswith(DISCOVER_PREFIX):
+            if message.startswith(DISCOVER_PREFIX):
                 parts = message.split(":")
                 if len(parts) == 3 and parts[1] == "NODE_ID":
                     response = f"{SERVER_RESPONSE}:{RPC_PORT}"
