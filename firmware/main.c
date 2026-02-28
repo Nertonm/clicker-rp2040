@@ -14,23 +14,7 @@
 
 #include "hardware_config.h"
 
-/**
- * @brief Simula o envio de cliques via RPC.
- * Retorna true para sucesso, false para falha simulada.
- */
-bool send_clicks_rpc(uint32_t clicks) {
-  static uint32_t attempt = 0;
-  attempt++;
-
-  // Simula uma falha a cada 3 tentativas para testar o restore
-  if (attempt % 3 == 0) {
-    printf("[RPC] Simulated FAILURE for %u clicks\n", clicks);
-    return false;
-  }
-
-  printf("[RPC] Success: sent %u clicks\n", clicks);
-  return true;
-}
+// A lógica de envio real está agora centralizada em rpc_client.c
 
 int main(void) {
   stdio_init_all();
@@ -99,9 +83,6 @@ int main(void) {
       }
     }
   }
-
-  // Placar local acumulado apenas após confirmação do "servidor"
-  uint32_t local_score_confirmed = 0;
 
   printf("\n[MAIN] Entrando no loop principal...\n");
 
@@ -183,22 +164,15 @@ int main(void) {
           shared_state_set_server_error_active(false);
         }
 
-        // Condiciona sucesso da rodada ao cliente validado + stub de
-        // processamento local
-        if (rpc_ok && send_clicks_rpc(batch_clicks)) {
-          // Sucesso: atualiza placar e feedback
-          local_score_confirmed += batch_clicks;
-          shared_state_set_local_score(local_score_confirmed);
+        // rpc_client_send_clicks agora encapsula a serialização, parsing e sync
+        // O estado local e global é atualizado autoritativamente pelo
+        // rpc_client
+        if (rpc_ok) {
+          printf("[MAIN] Batch de %u cliques processado e sincronizado.\n",
+                 batch_clicks);
 
-          printf("[RPC_OK] Placar confirmado atualizado para: %u\n",
-                 local_score_confirmed);
-
-          // Sinaliza eventos para o Core 1
-          if (local_score_confirmed % 10 == 0 && local_score_confirmed > 0) {
-            shared_state_set_milestone_triggered(true);
-          } else {
-            shared_state_set_led_flash_requested(true);
-          }
+          // Feedback visual e sonoro
+          shared_state_set_led_flash_requested(true);
           buzzer_tone(2000, 20);
         } else {
           // Falha (seja timeout do RPC client ou stub quebrando): restaura
