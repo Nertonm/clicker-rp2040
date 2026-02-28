@@ -56,18 +56,15 @@ sincroniza quando o servidor voltar, sem perder nenhum evento.
 ## Compilação do firmware
 
 O firmware é compilado usando CMake. Certifique-se de que o Pico SDK está configurado.
+As credenciais de rede não ficam salvas no código. Você deve passá-las como parâmetros para o CMake durante a configuração:
 
 ```bash
 mkdir build && cd build
-cmake ..
-cmake --build .
+cmake -DWIFI_SSID="NomeDaSuaRede" -DWIFI_PASSWORD="SenhaDaSuaRede" ..
+cmake --build . -j4
 ```
 
 Isso gera o arquivo `firmware.uf2`. Grave na placa segurando BOOTSEL ao conectar via USB.
-
-Credenciais de rede não entram no controle de versão  defina em
-`secrets.h` (ignorado pelo `.gitignore`) ou passe via flags de
-compilação como mostrado acima.
 
 ---
 

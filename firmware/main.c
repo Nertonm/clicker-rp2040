@@ -8,7 +8,6 @@
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
-#include "secrets_template.h"
 #include <stdio.h>
 
 #include "hardware_config.h"
@@ -54,31 +53,38 @@ int main(void) {
   adc_gpio_init(JOY_VRY_PIN);
   adc_select_input(0);
 
+  // Lança o Core 1 ANTES da conexão WiFi para podermos ver "CONNECTING..." no
+  // OLED
+  multicore_launch_core1(core1_display_entry);
+
   if (cyw43_arch_init()) {
     printf("failed to initialise WiFi chip, seguindo sem WiFi\n");
     shared_state_set_connection_status(STATUS_OFFLINE);
   } else {
     cyw43_arch_enable_sta_mode();
+
+    // Loop de tentativa de conexão com retries
     shared_state_set_connection_status(STATUS_CONNECTING);
-    printf("Connecting to Wi-Fi...\n");
+    while (true) {
+      printf("[WIFI] Connecting to SSID '%s'...\n", WIFI_SSID);
+      int rc = cyw43_arch_wifi_connect_timeout_ms(
+          WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 10000);
 
-    int rc = cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD,
-                                                CYW43_AUTH_WPA2_AES_PSK, 10000);
-
-    if (rc != 0) {
-      printf("failed to connect, rc=%d — seguindo sem WiFi\n", rc);
-      shared_state_set_connection_status(STATUS_OFFLINE);
-    } else {
-      printf("WiFi connected.\n");
-      shared_state_set_connection_status(STATUS_ONLINE);
+      if (rc == 0) {
+        printf("[WIFI] Connected.\n");
+        shared_state_set_connection_status(STATUS_ONLINE);
+        break; // Segue para iniciar o loop principal
+      } else {
+        printf("[WIFI] Connect failed, rc=%d. Retrying in 5s...\n", rc);
+        shared_state_set_connection_status(STATUS_OFFLINE);
+        sleep_ms(5000);
+        shared_state_set_connection_status(STATUS_CONNECTING);
+      }
     }
   }
 
   // Placar local acumulado apenas após confirmação do "servidor"
   uint32_t local_score_confirmed = 0;
-
-  // Lança o Core 1 para cuidar do display
-  multicore_launch_core1(core1_display_entry);
 
   printf("\n[MAIN] Entrando no loop principal...\n");
 
@@ -87,6 +93,9 @@ int main(void) {
   const uint32_t RPC_COOLDOWN_MS = 1000; // 1s de cooldown após falha
 
   while (true) {
+    cyw43_arch_poll(); // Necessário para processar eventos de rede em modo
+                       // NO_SYS
+
     uint32_t current_pending = shared_state_get_pending_clicks();
 
     if (current_pending > last_logged_pending && current_pending > 0) {

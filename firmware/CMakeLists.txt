@@ -83,3 +83,22 @@ pico_add_extra_outputs(firmware)
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     DISPLAY_SSD1306=1   
 )
+
+# Injeta credenciais de WiFi se fornecidas no build
+if(DEFINED ENV{WIFI_SSID})
+    set(WIFI_SSID "$ENV{WIFI_SSID}")
+endif()
+
+if(DEFINED ENV{WIFI_PASSWORD})
+    set(WIFI_PASSWORD "$ENV{WIFI_PASSWORD}")
+endif()
+
+if(DEFINED WIFI_SSID AND DEFINED WIFI_PASSWORD)
+    target_compile_definitions(firmware PRIVATE
+        WIFI_SSID="${WIFI_SSID}"
+        WIFI_PASSWORD="${WIFI_PASSWORD}"
+    )
+    message(STATUS "Credenciais WiFi configuradas para a rede: ${WIFI_SSID}")
+else()
+    message(WARNING "Credenciais WIFI_SSID e WIFI_PASSWORD não foram fornecidas no build! A conexão WiFi falhará.")
+endif()

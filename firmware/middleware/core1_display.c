@@ -30,13 +30,13 @@ void core1_display_entry(void) {
     // Formata status de conexão
     switch (status) {
     case STATUS_ONLINE:
-      snprintf(buf_status, sizeof(buf_status), "Online");
+      snprintf(buf_status, sizeof(buf_status), "WIFI OK");
       break;
     case STATUS_OFFLINE:
-      snprintf(buf_status, sizeof(buf_status), "Offline");
+      snprintf(buf_status, sizeof(buf_status), "WIFI FAIL");
       break;
     case STATUS_CONNECTING:
-      snprintf(buf_status, sizeof(buf_status), "Conectando");
+      snprintf(buf_status, sizeof(buf_status), "CONNECTING...");
       break;
     case STATUS_SYNCING:
       snprintf(buf_status, sizeof(buf_status), "Sincroniz.");
