@@ -17,7 +17,14 @@ class GameManager():
 
     def activate_powerup(self, node_id):
         now = time.time()
-        if self.nodes[node_id]["powerup_active"] == False:
+        if node_id not in self.nodes:
+            self.nodes[node_id] = {
+                "last_ts": now,
+                "score": 0,
+                "powerup_expire": 0,
+                "powerup_active": False
+            }
+        if not self.nodes[node_id]["powerup_active"]:
             self.nodes[node_id]["powerup_expire"] = now
             self.nodes[node_id]["powerup_active"] = True
             response = {
