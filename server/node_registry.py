@@ -73,9 +73,15 @@ class NodeRegistry:
 
     async def get_node_last_seen_score(self, node_id):
         node = await db.get_node(node_id)
-        response = { 
-            "last_seen": node["last_seen"],
-            "score": node["local_score"]
+        if node is None:
+            # Nó ainda não está no banco de dados; retorna valores padrão.
+            return {
+                "last_seen": 0,
+                "score": 0,
+            }
+        response = {
+            "last_seen": node.get("last_seen", 0),
+            "score": node.get("local_score", 0),
         }
         return response
 
