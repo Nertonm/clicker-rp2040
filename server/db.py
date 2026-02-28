@@ -1,7 +1,8 @@
 import aiosqlite
 import time
+from pathlib import Path
 
-DB_FILE = "avocado.db"
+DB_FILE = str(Path(__file__).with_name("avocado.db"))
 
 # Inicia o banco de dados com as tabelas nodes, events e milestones
 
