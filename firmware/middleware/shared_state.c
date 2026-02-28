@@ -143,6 +143,14 @@ void shared_state_set_milestone_triggered(bool triggered) {
   UNLOCK_STATE();
 }
 
+bool shared_state_take_milestone_triggered(void) {
+  LOCK_STATE();
+  bool val = state.milestone_triggered;
+  state.milestone_triggered = false;
+  UNLOCK_STATE();
+  return val;
+}
+
 bool shared_state_get_led_flash_requested(void) {
   LOCK_STATE();
   bool val = state.led_flash_requested;
@@ -154,4 +162,12 @@ void shared_state_set_led_flash_requested(bool requested) {
   LOCK_STATE();
   state.led_flash_requested = requested;
   UNLOCK_STATE();
+}
+
+bool shared_state_take_led_flash_requested(void) {
+  LOCK_STATE();
+  bool val = state.led_flash_requested;
+  state.led_flash_requested = false;
+  UNLOCK_STATE();
+  return val;
 }

@@ -13,7 +13,9 @@ uint32_t shared_state_get_local_score(void);
 uint32_t shared_state_get_global_score(void);
 void shared_state_get_node_scores(uint32_t *out, uint8_t count);
 connection_status_t shared_state_get_connection_status(void);
-bool shared_state_get_milestone_triggered(void);
-bool shared_state_get_led_flash_requested(void);
+
+// Flags de Eventos — take lê e zera atomicamente (uso exclusivo Core 1)
+bool shared_state_take_milestone_triggered(void);
+bool shared_state_take_led_flash_requested(void);
 
 #endif // SHARED_STATE_READER_H

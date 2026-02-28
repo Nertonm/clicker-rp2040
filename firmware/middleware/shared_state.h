@@ -55,11 +55,13 @@ uint32_t shared_state_get_lamport_ts(void);
 void shared_state_set_lamport_ts(uint32_t ts);
 void shared_state_increment_lamport_ts(void);
 
-// Flags de Eventos
+// Flags de Eventos (take = lê e zera - uso do Core 1)
 bool shared_state_get_milestone_triggered(void);
 void shared_state_set_milestone_triggered(bool triggered);
+bool shared_state_take_milestone_triggered(void);
 
 bool shared_state_get_led_flash_requested(void);
 void shared_state_set_led_flash_requested(bool requested);
+bool shared_state_take_led_flash_requested(void);
 
 #endif // SHARED_STATE_H
