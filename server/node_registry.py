@@ -80,6 +80,6 @@ class NodeRegistry:
             }
         
         self.nodes[node_id]["status"] = status
-        await db.update_node(node_id, self.nodes[node_id]["ip"], status, self.nodes[node_id]["last_seen"])
+        await db.update_node_status(node_id, status)
             
 

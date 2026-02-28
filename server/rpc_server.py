@@ -7,6 +7,7 @@ from game_manager import GameManager
 from node_registry import NodeRegistry
 from game_repository import GameRepository
 from lamport_clock import LamportClock
+from udp_discovery import DiscoveryDatagramProtocol, UDP_DISCOVER_PORT
 import db
 
 # Configurações do servidor
@@ -165,6 +166,14 @@ async def main():
     server = await asyncio.start_server(
         lambda r, w: handle_client(r, w, dispatcher),
         RPC_HOST, RPC_PORT
+    )
+
+    # Inicia o listener UDP para Descoberta Automática (US-03)
+    loop = asyncio.get_running_loop()
+    await loop.create_datagram_endpoint(
+        lambda: DiscoveryDatagramProtocol(RPC_PORT),
+        local_addr=("0.0.0.0", UDP_DISCOVER_PORT),
+        allow_broadcast=True
     )
 
     asyncio.create_task(background_tasks(registry))
