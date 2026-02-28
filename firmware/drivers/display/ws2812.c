@@ -46,11 +46,13 @@ void led_matrix_init(void) {
 
 static void np_write(void) {
   for (uint i = 0; i < WS2812_NUM_LEDS; i++) {
-    // Redução agressiva de brilho para BitDogLab (shift 5 bits = divide por 32)
-    // Isso garante que mesmo o valor "1" seja extremamente fraco.
-    pio_sm_put_blocking(pio_inst, sm_inst, led_buffer[i].G >> 4);
-    pio_sm_put_blocking(pio_inst, sm_inst, led_buffer[i].R >> 4);
-    pio_sm_put_blocking(pio_inst, sm_inst, led_buffer[i].B >> 4);
+    // Envia 24 bits (G, R, B) empacotados no topo do registrador de 32 bits
+    // MSB first (shift_right=false no PIO), portanto os dados ocupam os bits 31
+    // downto 8.
+    uint32_t color = ((uint32_t)led_buffer[i].G << 24) |
+                     ((uint32_t)led_buffer[i].R << 16) |
+                     ((uint32_t)led_buffer[i].B << 8);
+    pio_sm_put_blocking(pio_inst, sm_inst, color);
   }
   sleep_us(100); // Latch pulse
 }

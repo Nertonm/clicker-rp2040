@@ -21,6 +21,8 @@ void core1_display_entry(void) {
     bool milestone = shared_state_take_milestone_triggered();
     bool led_flash = shared_state_take_led_flash_requested();
 
+    bool fallback = shared_state_get_fallback_in_use();
+
     char buf_score[20];
     char buf_status[20];
 
@@ -30,7 +32,11 @@ void core1_display_entry(void) {
     // Formata status de conexão
     switch (status) {
     case STATUS_ONLINE:
-      snprintf(buf_status, sizeof(buf_status), "WIFI OK");
+      if (fallback) {
+        snprintf(buf_status, sizeof(buf_status), "FALLBACK IP");
+      } else {
+        snprintf(buf_status, sizeof(buf_status), "WIFI OK");
+      }
       break;
     case STATUS_OFFLINE:
       snprintf(buf_status, sizeof(buf_status), "WIFI FAIL");
@@ -56,17 +62,17 @@ void core1_display_entry(void) {
       display_text(6, 0, "MILESTONE!");
       // Blink duplo dourado em toda a matriz (suave via driver)
       for (int j = 0; j < 2; j++) {
-        led_matrix_set_all(100, 80, 0);
+        led_matrix_set_all(15, 10, 0); // Dourado escuro agradável
         sleep_ms(150);
         led_clear_all();
         sleep_ms(100);
       }
       // Mostra o número 0 em dourado
-      led_matrix_draw_number(0, 100, 80, 0);
+      led_matrix_draw_number(0, 15, 10, 0);
     } else {
       // Atualiza a matriz de LEDs com o dígito atual (Apresentação Core 1)
       uint8_t digito = score % 10;
-      led_matrix_draw_number(digito, 30, 30, 30);
+      led_matrix_draw_number(digito, 8, 8, 8); // Branco suave e perceptível
     }
 
     display_show();
@@ -74,7 +80,7 @@ void core1_display_entry(void) {
     // LED flash: pisca LED central se solicitado (Feedback de clique)
     bool just_flashed = false;
     if (led_flash) {
-      led_set(12, 0, 0, 50); // Feedback azulado suave
+      led_set(12, 0, 0, 15); // Feedback azulado fraco
       sleep_ms(50);
       led_set(12, 0, 0, 0);
       just_flashed = true;
@@ -93,7 +99,7 @@ void core1_display_entry(void) {
       // imediatamente.
       if (!just_flashed) {
         if (hb_state) {
-          led_set(12, 10, 10, 10); // Branco muito fraco
+          led_set(12, 4, 4, 4); // Branco de fundo/heartbeat
         } else {
           led_set(12, 0, 0, 0);
         }

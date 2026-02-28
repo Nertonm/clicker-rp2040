@@ -44,6 +44,7 @@ add_executable(firmware
     drivers/display/ssd1306_i2c.c
     drivers/display/ws2812.c
     audio/buzzer.c
+    discovery/service_disc.c
 )
 
 pico_set_program_name(firmware "firmware")
@@ -75,6 +76,7 @@ target_include_directories(firmware PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/audio
         ${CMAKE_CURRENT_LIST_DIR}/drivers/display
         ${CMAKE_CURRENT_LIST_DIR}/middleware
+        ${CMAKE_CURRENT_LIST_DIR}/discovery
 )
 
 
@@ -102,3 +104,15 @@ if(DEFINED WIFI_SSID AND DEFINED WIFI_PASSWORD)
 else()
     message(WARNING "Credenciais WIFI_SSID e WIFI_PASSWORD não foram fornecidas no build! A conexão WiFi falhará.")
 endif()
+
+# Configuração do NODE_ID
+if(DEFINED ENV{NODE_ID})
+    set(NODE_ID "$ENV{NODE_ID}")
+elseif(NOT DEFINED NODE_ID)
+    set(NODE_ID "0") # Fallback default
+endif()
+
+target_compile_definitions(firmware PRIVATE
+    NODE_ID=${NODE_ID}
+)
+message(STATUS "NODE_ID configurado como: ${NODE_ID}")

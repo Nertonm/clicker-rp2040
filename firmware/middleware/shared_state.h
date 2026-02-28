@@ -66,4 +66,8 @@ bool shared_state_get_led_flash_requested(void);
 void shared_state_set_led_flash_requested(bool requested);
 bool shared_state_take_led_flash_requested(void);
 
+// Fallback IP Tracking
+bool shared_state_get_fallback_in_use(void);
+void shared_state_set_fallback_in_use(bool in_use);
+
 #endif // SHARED_STATE_H

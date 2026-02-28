@@ -14,6 +14,7 @@ typedef struct {
   uint32_t current_lamport_ts;
   bool milestone_triggered;
   bool led_flash_requested;
+  bool fallback_in_use;
 } shared_state_t;
 
 static shared_state_t state;
@@ -23,6 +24,7 @@ void shared_state_init(void) {
   // Inicializa a estrutura com zeros
   memset(&state, 0, sizeof(shared_state_t));
   state.connection_status = STATUS_CONNECTING;
+  state.fallback_in_use = false;
 
   // Aloca um spinlock de hardware
   int lock_num = spin_lock_claim_unused(true);
@@ -176,4 +178,17 @@ bool shared_state_take_led_flash_requested(void) {
   state.led_flash_requested = false;
   UNLOCK_STATE();
   return val;
+}
+
+bool shared_state_get_fallback_in_use(void) {
+  LOCK_STATE();
+  bool val = state.fallback_in_use;
+  UNLOCK_STATE();
+  return val;
+}
+
+void shared_state_set_fallback_in_use(bool in_use) {
+  LOCK_STATE();
+  state.fallback_in_use = in_use;
+  UNLOCK_STATE();
 }

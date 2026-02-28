@@ -8,6 +8,8 @@
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
+#include "rpc_client.h"
+#include "service_disc.h"
 #include <stdio.h>
 
 #include "hardware_config.h"
@@ -73,6 +75,21 @@ int main(void) {
       if (rc == 0) {
         printf("[WIFI] Connected.\n");
         shared_state_set_connection_status(STATUS_ONLINE);
+
+        // Discovery inicial
+        ip_addr_t disc_ip;
+        uint16_t disc_port = 0;
+        absolute_time_t deadline = make_timeout_time_ms(5000);
+        bool found = service_disc_discover(&disc_ip, &disc_port, deadline);
+
+        if (found) {
+          rpc_client_set_server(&disc_ip, disc_port);
+          shared_state_set_fallback_in_use(false);
+        } else {
+          rpc_client_set_server_fallback();
+          shared_state_set_fallback_in_use(true);
+        }
+
         break; // Segue para iniciar o loop principal
       } else {
         printf("[WIFI] Connect failed, rc=%d. Retrying in 5s...\n", rc);
@@ -92,9 +109,32 @@ int main(void) {
   static uint32_t ms_since_last_rpc_attempt = 0;
   const uint32_t RPC_COOLDOWN_MS = 1000; // 1s de cooldown após falha
 
+  static connection_status_t last_status =
+      STATUS_OFFLINE; // Rastreador de reconexões
+
   while (true) {
     cyw43_arch_poll(); // Necessário para processar eventos de rede em modo
                        // NO_SYS
+
+    connection_status_t current_status = shared_state_get_connection_status();
+
+    // Rediscovery após queda/reconexão de WiFi
+    if (last_status != STATUS_ONLINE && current_status == STATUS_ONLINE) {
+      printf("[MAIN] Reconexão detectada. Executando Rediscovery...\n");
+      ip_addr_t disc_ip;
+      uint16_t disc_port = 0;
+      absolute_time_t deadline = make_timeout_time_ms(5000);
+      bool found = service_disc_discover(&disc_ip, &disc_port, deadline);
+
+      if (found) {
+        rpc_client_set_server(&disc_ip, disc_port);
+        shared_state_set_fallback_in_use(false);
+      } else {
+        rpc_client_set_server_fallback();
+        shared_state_set_fallback_in_use(true);
+      }
+    }
+    last_status = current_status;
 
     uint32_t current_pending = shared_state_get_pending_clicks();
 
@@ -115,8 +155,31 @@ int main(void) {
                "envio...\n",
                batch_clicks);
 
-        if (send_clicks_rpc(batch_clicks)) {
+        // Rediscovery dinâmico: se atingiu limite de falhas, tentamos achar um
+        // novo servidor
+        if (current_status == STATUS_ONLINE && !rpc_client_has_server()) {
+          printf("[MAIN] Endpoint inoperante. Executando Rediscovery "
+                 "Automático...\n");
+          ip_addr_t disc_ip;
+          uint16_t disc_port = 0;
+          absolute_time_t deadline = make_timeout_time_ms(5000);
+          bool found = service_disc_discover(&disc_ip, &disc_port, deadline);
+
+          if (found) {
+            rpc_client_set_server(&disc_ip, disc_port);
+            shared_state_set_fallback_in_use(false);
+          } else {
+            rpc_client_set_server_fallback();
+            shared_state_set_fallback_in_use(true);
+          }
+        }
+
+        // Só envia RPC de fato se estivemos online e o rpc_client aprovar
+        if (current_status == STATUS_ONLINE &&
+            rpc_client_send_clicks(batch_clicks) &&
+            send_clicks_rpc(batch_clicks)) {
           // Sucesso: atualiza placar e feedback
+          rpc_client_register_success();
           local_score_confirmed += batch_clicks;
           shared_state_set_local_score(local_score_confirmed);
 
@@ -132,6 +195,7 @@ int main(void) {
           buzzer_tone(2000, 20);
         } else {
           // Falha: restaura cliques para o próximo batch (merge)
+          rpc_client_register_failure();
           shared_state_restore_clicks(batch_clicks);
           printf("[RPC_FAIL] Restore crítico: devolvendo %u cliques ao pool. "
                  "(Merge)\n",
