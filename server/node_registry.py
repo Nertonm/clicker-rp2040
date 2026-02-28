@@ -61,6 +61,17 @@ class NodeRegistry:
     # Atualiza status do nó, é usado pelo GameManager ao executar sync_offline.
 
     async def update_status(self, node_id, status):
+        if node_id not in self.nodes:
+            # Try to load the node from the database if it's not in memory yet.
+            node = await db.get_node(node_id)
+            if not node:
+                # Node does not exist in the database; nothing to update.
+                return
+            self.nodes[node_id] = {
+                "ip": node["ip"],
+                "last_seen": node.get("last_seen") or 0,
+                "status": node.get("status") or status,
+            }
         self.nodes[node_id]["status"] = status
         await db.update_node(node_id, self.nodes[node_id]["ip"], status)
 
