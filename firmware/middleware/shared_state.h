@@ -14,6 +14,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "middleware/rpc_types.h"
 
 /**
  * @brief Número máximo de nós suportados na rede.
@@ -108,6 +109,19 @@ void shared_state_get_node_scores(uint32_t *out_scores, uint8_t count);
  * @note Apenas Core 0 deve realizar a escrita.
  */
 void shared_state_set_node_scores(const uint32_t *in_scores, uint8_t count);
+
+/**
+ * @brief Atualiza atomicamente todos os campos de estado derivados de um
+ *        resultado de clique bem-sucedido.
+ *
+ * Consolida a atualização de local_score, global_score e milestone_triggered
+ * sob um único acquire/release do spinlock, eliminando janelas de
+ * inconsistência entre atualizações individuais.
+ *
+ * @param[in] result Ponteiro para o resultado RPC. Deve ser não-nulo e válido
+ *                   (result->success == true garantido pelo chamador).
+ */
+void shared_state_set_scores(const RpcClickResult *result);
 
 /**
  * @brief Obtém o status atual da conexão.

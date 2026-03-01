@@ -36,18 +36,6 @@ static void apply_local_turbo(uint32_t duration_ms) {
 }
 
 /**
- * @brief Atualiza os scores globais e locais no estado compartilhado.
- *
- * @param[in] result Ponteiro para o resultado da chamada RPC.
- */
-static void apply_score_update(const RpcClickResult *result) {
-  shared_state_set_local_score((uint32_t)result->local_score);
-  shared_state_set_global_score((uint32_t)result->global_score);
-  shared_state_set_connection_status(STATUS_ONLINE);
-  shared_state_set_server_error_active(false);
-}
-
-/**
  * @brief Realiza a busca do servidor na rede e configura o cliente RPC.
  *
  * Tenta descobrir o servidor via UDP Broadcast. Caso falhe, utiliza
@@ -184,12 +172,28 @@ void task_rpc(void *param) {
     if (xQueueReceive(queue_clicks, &msg, pdMS_TO_TICKS(RPC_POLL_PERIOD_MS)) ==
         pdPASS) {
       do {
-        uint32_t lamport_ts = lamport_tick();
-        RpcClickResult click_res = rpc_add_clicks((int)msg.clicks, lamport_ts);
+        uint32_t lamport_sent = lamport_tick();
+        RpcClickResult click_res = rpc_add_clicks((int)msg.clicks, lamport_sent);
 
         if (click_res.success) {
+          printf("[LAMPORT] sent=%lu recv=%lu monotonic=%s\n",
+                 (unsigned long)lamport_sent,
+                 (unsigned long)click_res.lamport_ts,
+                 click_res.lamport_ts > lamport_sent ? "OK" : "VIOLATION");
+
           lamport_update((uint32_t)click_res.lamport_ts);
-          apply_score_update(&click_res);
+          shared_state_set_scores(&click_res);                // atômico
+
+          if (click_res.milestone_triggered) {
+            shared_state_set_led_flash_requested(true);
+            printf("[MILESTONE] Marco atingido: %d\n", click_res.milestone_value);
+          }
+
+          if (click_res.powerup_remaining_s > 0) {
+            apply_local_turbo((uint32_t)click_res.powerup_remaining_s * 1000u);
+            printf("[TURBO] Power-up do servidor: %d s restantes\n",
+                   click_res.powerup_remaining_s);
+          }
         } else {
           /* Tratamento de Erros do Servidor */
           if (click_res.error_code == RPC_RATE_EXCEEDED) {

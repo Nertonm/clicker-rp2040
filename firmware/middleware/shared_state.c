@@ -136,6 +136,23 @@ void shared_state_set_node_scores(const uint32_t *in_scores, uint8_t count) {
   UNLOCK_STATE();
 }
 
+/* --- Atualização composta --- */
+
+void shared_state_set_scores(const RpcClickResult *result) {
+  LOCK_STATE();
+
+  state.local_score = (uint32_t)result->local_score;
+  state.global_score = (uint32_t)result->global_score;
+  state.connection_status = STATUS_ONLINE;
+  state.server_error_active = false;
+
+  if (result->milestone_triggered) {
+    state.milestone_triggered = true;
+  }
+
+  UNLOCK_STATE();
+}
+
 connection_status_t shared_state_get_connection_status(void) {
   LOCK_STATE();
   connection_status_t status = state.connection_status;
