@@ -15,15 +15,12 @@ sincroniza quando o servidor voltar, sem perder nenhum evento.
 
 ---
 
-## Arquitetura
-
-```
 [BitDogLab #0] ->
-[BitDogLab #1] -> servidor (JSON-RPC 2.0 sobre TCP)
-[BitDogLab #2] ->               |            
-                         banco de dados
-                     Dashboard WebSocket -> browser
-```
+[BitDogLab #1] -> Servidor (TCP 8765)
+[BitDogLab #2] ->       |
+                Camadas: App -> Domain -> Infra (SQLite)
+                        |
+                 Dashboard Web (HTTP 8080 / WS 8081)
 
 **Firmware (C / Pico SDK)**
 - Core 0: Inicialização, WiFi, leitura de botões e loop principal.
@@ -39,7 +36,7 @@ sincroniza quando o servidor voltar, sem perder nenhum evento.
 **Protocolos**
 - Discovery: broadcast UDP 9999 com `COOKIE_DISCOVER` / `COOKIE_SERVER`
 - RPC: JSON-RPC 2.0 sobre TCP 8765
-- Dashboard: WebSocket 8080
+- Dashboard: HTTP 8080 e WebSocket 8081
 
 ---
 
@@ -68,13 +65,9 @@ Isso gera o arquivo `firmware.uf2`. Grave na placa segurando BOOTSEL ao conectar
 
 ---
 
-## Painel administrativo
+## Painel administrativo e Dashboard
 
-O servidor expõe uma rota `/admin` com:
-
-- Simulação de latência de processamento (slider 0–2000 ms)
-- Forçar um nó como offline para testar reconexão
-- Reset de sessão sem reiniciar o servidor
+O servidor expõe um dashboard místico em tempo real. Para detalhes de como subir e configurar, consulte o [Guia do Dashboard](docs/dashboard_guide.md).
 
 ---
 
@@ -89,15 +82,11 @@ O servidor expõe uma rota `/admin` com:
 
 ---
 
-## Estrutura do repositório
-
-```
-firmware/
-  main.c                ponto de entrada — inicialização e loop principal
-  CMakeLists.txt        configuração de build do projeto
-  hardware_config.h     centralização de GPIOs e configurações de hardware
-  middleware/
-    button_handler.c/h  leitura de botões com debounce por software
+server/
+  app/          ponto de entrada (main.py) e config
+  domain/       lógica de jogo (GameManager, NodeRegistry)
+  infra/        persistência (db.py) e servidores (rpc)
+  dashboard/    sistema de visualização modular
     shared_state.c/h    estado compartilhado entre rotinas (spinlock)
   drivers/              em desenvolvimento (OLED, LED Matrix)
   audio/                em desenvolvimento (Buzzer)

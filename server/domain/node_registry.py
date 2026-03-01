@@ -1,5 +1,5 @@
 import time
-import db
+from infra import db
 
 ACTIVE = "ACTIVE"
 SYNCING = "SYNCING"

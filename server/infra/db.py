@@ -1,8 +1,6 @@
 import aiosqlite
 import time
-from pathlib import Path
-
-DB_FILE = str(Path(__file__).with_name("avocado.db"))
+from app.config import DB_FILE
 
 async def init_db():
     """Inicializa o banco de dados com as tabelas nodes, events e milestones."""

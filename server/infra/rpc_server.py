@@ -3,22 +3,9 @@ import json
 import time
 import datetime
 import traceback
-from game_manager import GameManager
-from node_registry import NodeRegistry
-from game_repository import GameRepository
-from lamport_clock import LamportClock
-from udp_discovery import DiscoveryDatagramProtocol, UDP_DISCOVER_PORT
-import db
-
-# Configurações do servidor
-RPC_HOST = "0.0.0.0"
-RPC_PORT = 8765
-
-# Parâmetro alterável em runtime - transformado em variável global
-SIMULATE_PROCESSING_DELAY_MS = 0
 
 # Estado global do servidor
-active_connections = 0
+_active_connections = 0
 
 def log_structured(node_id, method, processing_time_ms):
     """Gera uma linha de log estruturado em JSON conforme critérios de aceite."""
@@ -27,7 +14,7 @@ def log_structured(node_id, method, processing_time_ms):
         "node_id": node_id,
         "method": method,
         "processing_time_ms": round(processing_time_ms, 2),
-        "active_connections": active_connections
+        "active_connections": _active_connections
     }
     print(json.dumps(log_entry), flush=True)
 
@@ -44,14 +31,14 @@ class RPCDispatcher:
             "register_node": self.node_registry.register_node,
             "heartbeat": self.node_registry.heartbeat,
             "get_nodes_scores": self.game_repo.get_nodes_scores,
-            "set_processing_delay": self.set_processing_delay  # Adicionado conforme requisito de runtime
+            "set_processing_delay": self.set_processing_delay
         }
+        self.simulate_delay_ms = 0
 
     async def set_processing_delay(self, delay_ms):
         """Altera o delay de simulação em tempo real."""
-        global SIMULATE_PROCESSING_DELAY_MS
-        SIMULATE_PROCESSING_DELAY_MS = int(delay_ms)
-        return {"status": "SUCCESS", "new_delay": SIMULATE_PROCESSING_DELAY_MS}
+        self.simulate_delay_ms = int(delay_ms)
+        return {"status": "SUCCESS", "new_delay": self.simulate_delay_ms}
 
     async def dispatch(self, request_json):
         try:
@@ -70,12 +57,10 @@ class RPCDispatcher:
             return self._error_response(req_id, -32601, "Method not found")
 
         handler = self.handlers[method]
-        
         start_process_time = time.time()
         node_id = params.get("node_id") if isinstance(params, dict) else None
         
         try:
-            # Chama o handler.
             if isinstance(params, list):
                 result = await handler(*params)
             elif isinstance(params, dict):
@@ -83,10 +68,8 @@ class RPCDispatcher:
             else:
                 result = await handler()
 
-            # Delay de simulação antes da serialização (requisito técnico)
-            # Quando ativo, o log evidencia as múltiplas corrotinas concorrentes
-            if SIMULATE_PROCESSING_DELAY_MS > 0:
-                await asyncio.sleep(SIMULATE_PROCESSING_DELAY_MS / 1000)
+            if self.simulate_delay_ms > 0:
+                await asyncio.sleep(self.simulate_delay_ms / 1000)
 
             duration_ms = (time.time() - start_process_time) * 1000
             log_structured(node_id, method, duration_ms)
@@ -96,7 +79,6 @@ class RPCDispatcher:
                 "result": result,
                 "id": req_id
             }
-
         except Exception as e:
             traceback.print_exc()
             return self._error_response(req_id, -32000, f"Server error: {str(e)}")
@@ -109,82 +91,36 @@ class RPCDispatcher:
         }
 
 async def handle_client(reader, writer, dispatcher):
-    global active_connections
-    active_connections += 1
-    addr = writer.get_extra_info('peername')
-    
+    global _active_connections
+    _active_connections += 1
     try:
         while True:
-            # Uma requisição JSON-RPC por linha
             line = await reader.readline()
             if not line:
                 break
-            
             request_str = line.decode().strip()
             if not request_str:
                 continue
                 
             response = await dispatcher.dispatch(request_str)
-            
             response_str = json.dumps(response) + "\n"
             writer.write(response_str.encode())
             await writer.drain()
-            
     except Exception:
         pass
     finally:
-        active_connections -= 1
+        _active_connections -= 1
         writer.close()
         try:
             await writer.wait_closed()
         except Exception:
             pass
 
-async def background_tasks(node_registry):
-    """Roda tarefas de background disparadas por start_server."""
-    while True:
-        try:
-            await node_registry.mark_inactive()
-        except Exception:
-            traceback.print_exc()
-        await asyncio.sleep(10)
-
-async def main():
-    await db.init_db()
-    
-    # Primitivas de sincronização criadas na infra e passadas para o domínio
-    # para evitar que o domínio importe asyncio diretamente.
-    game_lock = asyncio.Lock()
-    
-    clock = LamportClock()
-    registry = NodeRegistry(clock)
-    game_repo = GameRepository()
-    manager = GameManager(registry, game_repo, clock, lock=game_lock) # Repos injetados
-    dispatcher = RPCDispatcher(manager, registry, game_repo)
-
-    # Inicia o servidor TCP assíncrono
+async def start_rpc_server(game_manager, node_registry, game_repo, host="0.0.0.0", port=8765):
+    """Inicia o servidor TCP RPC e retorna o servidor e uma função para ler conexões ativas."""
+    dispatcher = RPCDispatcher(game_manager, node_registry, game_repo)
     server = await asyncio.start_server(
         lambda r, w: handle_client(r, w, dispatcher),
-        RPC_HOST, RPC_PORT
+        host, port
     )
-
-    # Inicia o listener UDP para Descoberta Automática (US-03)
-    loop = asyncio.get_running_loop()
-    await loop.create_datagram_endpoint(
-        lambda: DiscoveryDatagramProtocol(RPC_PORT),
-        local_addr=("0.0.0.0", UDP_DISCOVER_PORT),
-        allow_broadcast=True
-    )
-
-    asyncio.create_task(background_tasks(registry))
-
-    print(f"Servidor RPC rodando em {RPC_HOST}:{RPC_PORT} (JSON-RPC 2.0)")
-    
-    async with server:
-        await server.serve_forever()
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+    return server, lambda: _active_connections

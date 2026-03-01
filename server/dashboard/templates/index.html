@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>~*+ Abacate Clicker +*~ Santuario Mistico</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- Estrelinhas de fundo -->
+    <div class="stars" id="stars"></div>
+
+    <div class="container">
+        <header>
+            <div class="connection-badge offline" id="connection-badge">
+                <span class="status-icon" id="status-icon">💔</span>
+                <span id="status-text">Desconectado</span>
+            </div>
+
+            <!-- Logo do Abacate fofo -->
+            <svg class="avocado-logo" viewBox="0 0 100 130">
+                <!-- Corpo do abacate -->
+                <ellipse cx="50" cy="70" rx="40" ry="55" fill="#8bc34a"/>
+                <ellipse cx="50" cy="70" rx="32" ry="45" fill="#c5e1a5"/>
+                <!-- Caroco com carinha -->
+                <circle cx="50" cy="80" r="18" fill="#8d6e63"/>
+                <!-- Olhinhos -->
+                <ellipse cx="44" cy="76" rx="3" ry="4" fill="#5d4037"/>
+                <ellipse cx="56" cy="76" rx="3" ry="4" fill="#5d4037"/>
+                <!-- Brilho nos olhos -->
+                <circle cx="45" cy="75" r="1.5" fill="white"/>
+                <circle cx="57" cy="75" r="1.5" fill="white"/>
+                <!-- Bochecha -->
+                <ellipse cx="38" cy="82" rx="4" ry="2.5" fill="#ffccbc" opacity="0.7"/>
+                <ellipse cx="62" cy="82" rx="4" ry="2.5" fill="#ffccbc" opacity="0.7"/>
+                <!-- Sorriso -->
+                <path d="M 44 86 Q 50 92 56 86" stroke="#5d4037" stroke-width="2" fill="none" stroke-linecap="round"/>
+                <!-- Folhinha -->
+                <ellipse cx="50" cy="18" rx="8" ry="15" fill="#66bb6a" transform="rotate(-15 50 18)"/>
+                <line x1="50" y1="18" x2="50" y2="30" stroke="#558b2f" stroke-width="2"/>
+                <!-- Aureola mistica -->
+                <ellipse cx="50" cy="8" rx="20" ry="6" fill="none" stroke="#fff59d" stroke-width="2" opacity="0.8"/>
+            </svg>
+
+            <h1>Abacate Clicker</h1>
+            <p class="subtitle">Santuario dos Cliques Misticos</p>
+        </header>
+
+        <!-- Score Principal -->
+        <div class="score-shrine">
+            <div class="score-label">✧ Pontuacao Cosmica ✧</div>
+            <div class="score-value" id="global-score">0</div>
+            <div class="score-decoration">
+                ･ﾟ✧ <span id="score-stars">☆</span> ✧ﾟ･
+            </div>
+        </div>
+
+        <!-- Paineis -->
+        <div class="panels">
+            <!-- Painel de Nodes -->
+            <div class="panel panel-nodes">
+                <div class="panel-header">
+                    <span class="panel-icon">🥑</span>
+                    <span class="panel-title">Abacatinhos Conectados</span>
+                </div>
+                <div class="nodes-grid" id="nodes-list">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🥑💤</div>
+                        <p>Nenhum abacatinho acordou ainda...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Painel de Eventos -->
+            <div class="panel panel-events">
+                <div class="panel-header">
+                    <span class="panel-icon">📜</span>
+                    <span class="panel-title">Pergaminho dos Cliques</span>
+                </div>
+                <div class="events-list" id="events-list">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔮</div>
+                        <p>Esperando as profecias...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer>
+            <div class="footer-stat">
+                <div class="footer-stat-value" id="active-connections">0</div>
+                <div class="footer-stat-label">Conexoes Ativas</div>
+            </div>
+
+            <div class="node-summary">
+                <div class="summary-item">
+                    <span class="summary-dot active"></span>
+                    <span><span id="count-active">0</span> ativos</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-dot syncing"></span>
+                    <span><span id="count-syncing">0</span> sincronizando</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-dot inactive"></span>
+                    <span><span id="count-inactive">0</span> dormindo</span>
+                </div>
+            </div>
+
+            <div class="mystic-message" id="mystic-message">
+                Os abacates guardam a sabedoria dos cliques antigos...
+            </div>
+        </footer>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

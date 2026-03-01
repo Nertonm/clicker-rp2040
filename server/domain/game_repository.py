@@ -1,4 +1,4 @@
-import db
+from infra import db
 import time
 
 class GameRepository:

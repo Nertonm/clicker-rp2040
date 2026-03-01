@@ -1,6 +1,6 @@
 # Database Schema (SQLite)
 
-O AbacateOS utiliza SQLite para persistência local, isolada no módulo `db.py`. O banco é armazenado no arquivo `avocado.db`.
+Utiliza SQLite para persistência local, isolada no módulo `db.py`. O banco é armazenado no arquivo `avocado.db`.
 
 ## Tabelas
 
