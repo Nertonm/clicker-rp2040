@@ -129,6 +129,7 @@ void task_rpc(void *param) {
   bool registered = false;
   TickType_t last_scores_refresh = xTaskGetTickCount();
   TickType_t last_register_attempt = 0;
+  uint8_t consecutive_rpc_failures = 0;
 
   while (1) {
     /* Processamento de Power-up (Turbo) */
@@ -155,6 +156,7 @@ void task_rpc(void *param) {
         RpcSimpleResult reg = rpc_register_node((uint8_t)NODE_ID);
         if (reg.success) {
           registered = true;
+          consecutive_rpc_failures = 0;  // Reset ao reconectar
           shared_state_set_connection_status(STATUS_ONLINE);
           shared_state_set_server_error_active(false);
           printf("[RPC] Nó %d registrado\n", NODE_ID);
@@ -171,49 +173,68 @@ void task_rpc(void *param) {
     click_msg_t msg;
     if (xQueueReceive(queue_clicks, &msg, pdMS_TO_TICKS(RPC_POLL_PERIOD_MS)) ==
         pdPASS) {
-      do {
-        uint32_t lamport_sent = lamport_tick();
-        RpcClickResult click_res = rpc_add_clicks((int)msg.clicks, lamport_sent);
+      connection_status_t current_status = shared_state_get_connection_status();
 
-        if (click_res.success) {
-          printf("[LAMPORT] sent=%lu recv=%lu monotonic=%s\n",
-                 (unsigned long)lamport_sent,
-                 (unsigned long)click_res.lamport_ts,
-                 click_res.lamport_ts > lamport_sent ? "OK" : "VIOLATION");
+      if (current_status == STATUS_OFFLINE) {
+        // Se estamos OFFLINE, não tenta RPC, apenas restaura cliques para acúmulo local
+        shared_state_restore_clicks(msg.clicks);
+      } else {
+        // Apenas processa RPC se estiver ONLINE ou CONNECTING
+        do {
+          uint32_t lamport_sent = lamport_tick();
+          RpcClickResult click_res = rpc_add_clicks((int)msg.clicks, lamport_sent);
 
-          lamport_update((uint32_t)click_res.lamport_ts);
-          shared_state_set_scores(&click_res);                // atômico
+          if (click_res.success) {
+            printf("[LAMPORT] sent=%lu recv=%lu monotonic=%s\n",
+                   (unsigned long)lamport_sent,
+                   (unsigned long)click_res.lamport_ts,
+                   click_res.lamport_ts > lamport_sent ? "OK" : "VIOLATION");
 
-          if (click_res.milestone_triggered) {
-            shared_state_set_led_flash_requested(true);
-            printf("[MILESTONE] Marco atingido: %d\n", click_res.milestone_value);
-          }
+            // Reset do contador de falhas em caso de sucesso
+            consecutive_rpc_failures = 0;
 
-          if (click_res.powerup_remaining_s > 0) {
-            apply_local_turbo((uint32_t)click_res.powerup_remaining_s * 1000u);
-            printf("[TURBO] Power-up do servidor: %d s restantes\n",
-                   click_res.powerup_remaining_s);
-          }
-        } else {
-          /* Tratamento de Erros do Servidor */
-          if (click_res.error_code == RPC_RATE_EXCEEDED) {
-            uint32_t rejected =
-                msg.clicks - (uint32_t)click_res.accepted_clicks;
-            if (rejected > 0) {
-              shared_state_restore_clicks(rejected);
+            lamport_update((uint32_t)click_res.lamport_ts);
+            shared_state_set_scores(&click_res);                // atômico
+
+            if (click_res.milestone_triggered) {
+              shared_state_set_led_flash_requested(true);
+              printf("[MILESTONE] Marco atingido: %d\n", click_res.milestone_value);
+            }
+
+            if (click_res.powerup_remaining_s > 0) {
+              apply_local_turbo((uint32_t)click_res.powerup_remaining_s * 1000u);
+              printf("[TURBO] Power-up do servidor: %d s restantes\n",
+                     click_res.powerup_remaining_s);
             }
           } else {
-            shared_state_restore_clicks(msg.clicks);
-            if (click_res.error_code == RPC_LAMPORT_VIOLATION) {
-              lamport_update((uint32_t)click_res.lamport_ts);
+            /* Tratamento de Erros do Servidor */
+            if (click_res.error_code == RPC_RATE_EXCEEDED) {
+              uint32_t rejected =
+                  msg.clicks - (uint32_t)click_res.accepted_clicks;
+              if (rejected > 0) {
+                shared_state_restore_clicks(rejected);
+              }
             } else {
-              shared_state_set_connection_status(STATUS_OFFLINE);
-              registered = false;
-              break;
+              shared_state_restore_clicks(msg.clicks);
+              if (click_res.error_code == RPC_LAMPORT_VIOLATION) {
+                lamport_update((uint32_t)click_res.lamport_ts);
+                // Violação de Lamport não conta como falha de rede
+              } else {
+                // Falha de rede (timeout, desconexão, parse error, etc)
+                consecutive_rpc_failures++;
+                printf("[RPC] Falha #%d/3\n", consecutive_rpc_failures);
+
+                if (consecutive_rpc_failures >= 3) {
+                  printf("[RPC] 3 falhas consecutivas, entrando em modo OFFLINE\n");
+                  shared_state_set_connection_status(STATUS_OFFLINE);                  consecutive_rpc_failures = 0; // Reset para próximo ciclo
+                  registered = false;           // Força re-registro na reconexão
+                  break;
+                }
+              }
             }
           }
-        }
-      } while (xQueueReceive(queue_clicks, &msg, 0) == pdPASS);
+        } while (xQueueReceive(queue_clicks, &msg, 0) == pdPASS);
+      }
     }
 
     /* Atualização Periódica do Placar Global */

@@ -90,7 +90,7 @@ server/
   
 firmware/
   main.c                fluxo principal e loop Multicore
-  rpc_client.c/h        API pública de rede — único ponto de lwIP
+  rpc_client.c/h        API pública de rede (único ponto de lwIP)
   
   **Nova Interface RPC (v2.0)**
   - `rpc_client.h` expõe 9 funções (6 operacionais + 3 utilitárias)

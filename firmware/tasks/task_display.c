@@ -85,6 +85,7 @@ void task_display(void *param) {
     uint32_t local = shared_state_get_local_score();
     uint32_t global = shared_state_get_global_score();
     connection_status_t status = shared_state_get_connection_status();
+    uint32_t pending = shared_state_get_pending_clicks();
     bool led_flash = shared_state_take_led_flash_requested();
     bool milestone = shared_state_take_milestone_triggered();
     bool turbo_active = shared_state_get_turbo_active();
@@ -114,8 +115,12 @@ void task_display(void *param) {
     /* Preparação das linhas de texto para o OLED */
     snprintf(row1, sizeof(row1), "Node %d: %lu", NODE_ID, (unsigned long)local);
     snprintf(row2, sizeof(row2), "Global: %lu", (unsigned long)global);
+
     if (turbo_active) {
       snprintf(row3, sizeof(row3), "TURBO x3");
+    } else if (status == STATUS_OFFLINE) {
+      // Formato compacto para display de 128x64 pixels (aprox. 21 chars/linha)
+      snprintf(row3, sizeof(row3), "[o] OFFLINE P:%lu", (unsigned long)pending);
     } else {
       snprintf(row3, sizeof(row3), "%s", status_to_text(status));
     }
@@ -145,6 +150,18 @@ void task_display(void *param) {
     } else {
       // Cor cinza padrão
       led_matrix_draw_number(digit, 8, 8, 8);
+    }
+
+    /* Indicador de modo OFFLINE nos LEDs */
+    if (status == STATUS_OFFLINE && !turbo_active && milestone_glow_ticks == 0 &&
+        !led_flash) {
+      // Pisca LED central em vermelho fraco (alerta visual discreto)
+      static uint32_t offline_frame_count = 0;
+      offline_frame_count++;
+
+      if ((offline_frame_count % 10) < 3) {
+        led_set(12, 8, 0, 0); // LED central em vermelho
+      }
     }
 
     /* Feedback visual de clique (flash azul central) */

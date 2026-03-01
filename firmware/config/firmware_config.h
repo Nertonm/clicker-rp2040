@@ -19,7 +19,7 @@
 #define MONITOR_PERIOD_MS 5000    /**< Intervalo de log de telemetria (ms). */
 #define RPC_POLL_PERIOD_MS 100    /**< Latência de resposta da tarefa RPC (ms). */
 #define SCORES_REFRESH_MS 5000    /**< Intervalo de busca de scores globais (ms). */
-#define RPC_REGISTER_RETRY_MS 2000 /**< Intervalo de tentativa de conexão inicial (ms). */
+#define RPC_REGISTER_RETRY_MS 5000 /**< Intervalo de sondagem de reconexão em modo OFFLINE (ms). */
 /** @} */
 
 /** @name Regras de Jogo */
