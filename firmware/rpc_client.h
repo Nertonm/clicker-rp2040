@@ -24,7 +24,6 @@ typedef enum {
   RPC_DISCONNECTED,      ///< Socket fechado, sem conexão
   RPC_LAMPORT_VIOLATION, ///< Servidor rejeitou por timestamp inválido
   RPC_RATE_EXCEEDED,     ///< Servidor limitou taxa de cliques
-  RPC_OFFLINE_QUEUED,    ///< Offline, cliques enfileirados localmente
   RPC_PARSE_ERROR        ///< Resposta JSON mal formatada
 } RpcError;
 
@@ -93,8 +92,8 @@ RpcSimpleResult rpc_register_node(uint8_t node_id);
 
 /**
  * Envia cliques para o servidor.
- * Se offline, enfileira localmente e retorna RPC_OFFLINE_QUEUED.
- * Fila é sincronizada automaticamente quando servidor voltar.
+ * Se ocorrer erro de rede, retorna RPC_DISCONNECTED ou RPC_TIMEOUT.
+ * A fila é gerenciada pela task_rpc chamadora.
  *
  * @param clicks Número de cliques a enviar
  * @param lamport_ts Timestamp Lamport local atual
@@ -142,12 +141,6 @@ void rpc_client_set_server(const char *ip_str, uint16_t port);
  * Chamado quando discovery falha.
  */
 void rpc_client_set_server_fallback(void);
-
-/**
- * Polling de reconexão e drenagem de fila offline.
- * Deve ser chamado periodicamente no loop principal.
- */
-void rpc_poll(void);
 
 /**
  * Verifica se está conectado ao servidor.

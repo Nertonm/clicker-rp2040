@@ -15,26 +15,27 @@ Sempre checar `success` antes de acessar outros campos.
 
 ### Códigos de Erro
 - `RPC_OK`: Sucesso
-- `RPC_OFFLINE_QUEUED`: Sem conexão, cliques enfileirados (não é erro crítico)
 - `RPC_LAMPORT_VIOLATION`: Servidor rejeitou timestamp (atualizar Lamport)
 - `RPC_RATE_EXCEEDED`: Servidor limitou taxa (alguns cliques rejeitados)
-- `RPC_DISCONNECTED`: Socket fechado
-- `RPC_TIMEOUT`: Servidor não respondeu
+- `RPC_DISCONNECTED`: Socket fechado ou erro de conexão
+- `RPC_TIMEOUT`: Servidor não respondeu (timeout no recv)
 - `RPC_PARSE_ERROR`: Resposta JSON inválida
 
-## Reconexão Automática
-- A reconexão é dirigida pela `task_rpc` via chamadas periódicas a `rpc_poll()`.
-- O intervalo de tentativa é limitado internamente (~2s).
-- A fila offline é drenada quando a conexão volta.
+## Comportamento de Retry
+- A reconexão e tentativa de envio acontecem dentro de cada chamada (`rpc_add_clicks`, etc).
+- Há 3 tentativas de envio por operação usando `vTaskDelay()` (não `sleep_ms()` por causa do FreeRTOS) com backoff de {100, 200, 400} ms.
+- Worst-case latency por chamada: `2s (timeout) * 3 tentativas + 100ms + 200ms = 6,3s`.
+- Uma primitiva interna `rpc_call_once()` tenta `connect -> send -> recv` (nova conexão por tentativa) e ela não é exposta na API.
+- Se todas as falharam e o resultado for offline/rate limit, a task de rede em `firmware/tasks/task_rpc.c` é responsável por usar `shared_state_restore_clicks()` para o retry natural via loop principal.
 
 ## Exemplos
-Ver `firmware/main.c` para uso completo.
+Ver `firmware/tasks/task_rpc.c` para uso completo.
 
 ## Comportamento Atual
 
 - `rpc_init()` inicializa o estado interno e configura fallback; a conexão é lazy.
 - `rpc_register_node(node_id)` estabelece conexão e registra o nó.
-- `rpc_add_clicks(clicks, lamport_ts)` envia online quando possível; offline retorna `RPC_OFFLINE_QUEUED`.
+- `rpc_add_clicks(clicks, lamport_ts)` envia online quando possível; falha retorna erro para tratamento na task.
 - `rpc_activate_powerup()` ativa turbo (botão B) no servidor quando online.
 - `rpc_get_scores()` atualiza placar autoritativo periodicamente.
 - `rpc_client_set_server(...)` e `rpc_client_set_server_fallback()` definem o endpoint alvo.
@@ -44,3 +45,4 @@ Ver `firmware/main.c` para uso completo.
 - [ ] Trocar parser sscanf por cJSON para robustez
 - [ ] Adicionar métricas de latência e taxa de reconexão
 - [ ] Testes unitários com servidor mock
+- [ ] Implementar socket non-blocking para `connect()` (atualmente o connect bloqueia, adicionaria complexidade de `select()`)

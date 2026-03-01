@@ -75,8 +75,13 @@ add_executable(firmware
     freertos_hooks.c
     middleware/button_handler.c
     middleware/shared_state.c
-    middleware/core1_display.c
     middleware/lamport.c
+    middleware/app_queues.c
+    middleware/game_events.c
+    tasks/task_buttons.c
+    tasks/task_rpc.c
+    tasks/task_display.c
+    tasks/task_monitor.c
     drivers/display/display.c
     drivers/display/ssd1306_i2c.c
     drivers/display/ws2812.c
@@ -121,8 +126,10 @@ target_link_libraries(firmware
 target_include_directories(firmware PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
         ${CMAKE_CURRENT_LIST_DIR}/audio
+        ${CMAKE_CURRENT_LIST_DIR}/config
         ${CMAKE_CURRENT_LIST_DIR}/drivers/display
         ${CMAKE_CURRENT_LIST_DIR}/middleware
+        ${CMAKE_CURRENT_LIST_DIR}/tasks
         ${CMAKE_CURRENT_LIST_DIR}/discovery
 )
 

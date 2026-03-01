@@ -4,17 +4,16 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "lwip/inet.h"
+#include "FreeRTOS.h"
 #include "lwip/sockets.h"
-#include "pico/time.h"
+#include "task.h"
 
 #ifndef FALLBACK_SERVER_IP
 #define FALLBACK_SERVER_IP "192.168.0.10"
 #endif
 #define FALLBACK_SERVER_PORT 8765
-#define RECV_TIMEOUT_MS 5000
-#define SEND_TIMEOUT_MS 5000
-#define RECONNECT_INTERVAL_MS 2000
+#define RECV_TIMEOUT_MS 2000
+#define SEND_TIMEOUT_MS 2000
 #define RPC_BUFFER_SIZE 1024
 
 typedef struct {
@@ -25,13 +24,6 @@ typedef struct {
   char server_ip[32];
   uint16_t server_port;
   bool using_fallback;
-
-  struct {
-    int accumulated_clicks;
-    int last_lamport;
-  } offline_queue;
-
-  uint32_t last_reconnect_attempt_ms;
 } RpcState;
 
 static RpcState rpc_state = {
@@ -41,11 +33,7 @@ static RpcState rpc_state = {
     .server_ip = FALLBACK_SERVER_IP,
     .server_port = FALLBACK_SERVER_PORT,
     .using_fallback = true,
-    .offline_queue = {0, 0},
-    .last_reconnect_attempt_ms = 0,
 };
-
-static uint32_t now_ms(void) { return to_ms_since_boot(get_absolute_time()); }
 
 static void disconnect_socket(void) {
   if (rpc_state.sock >= 0) {
@@ -132,6 +120,48 @@ static bool send_and_receive(const char *request, char *response,
 
   response[n] = '\0';
   return true;
+}
+
+// Apenas [0] e [1] são usados (attempt < 3); [2] reservado para futura 4ª
+// tentativa
+static const uint32_t BACKOFF_MS[] = {100, 200, 400};
+
+static RpcError rpc_call_once(const char *request, char *response,
+                              size_t response_size) {
+  disconnect_socket();
+  if (!connect_to_server()) {
+    return RPC_DISCONNECTED;
+  }
+  if (!send_and_receive(request, response, response_size)) {
+    if (errno == EAGAIN || errno == ETIMEDOUT) {
+      return RPC_TIMEOUT;
+    }
+    return RPC_DISCONNECTED;
+  }
+  disconnect_socket();
+  return RPC_OK;
+}
+
+static bool rpc_call_with_retry(const char *request, char *response,
+                                size_t response_size, RpcError *out_err) {
+  RpcError last_err = RPC_DISCONNECTED;
+  for (int attempt = 1; attempt <= 3; attempt++) {
+    last_err = rpc_call_once(request, response, response_size);
+    if (last_err == RPC_OK) {
+      if (out_err)
+        *out_err = RPC_OK;
+      return true;
+    }
+
+    printf("RPC FAIL attempt %d/3\n", attempt);
+
+    if (attempt < 3) {
+      vTaskDelay(pdMS_TO_TICKS(BACKOFF_MS[attempt - 1]));
+    }
+  }
+  if (out_err)
+    *out_err = last_err;
+  return false;
 }
 
 static void build_register_node_json(char *buffer, size_t size,
@@ -343,9 +373,8 @@ RpcSimpleResult rpc_init(void) {
            FALLBACK_SERVER_IP);
   rpc_state.using_fallback = true;
   rpc_state.initialized = true;
-  rpc_state.last_reconnect_attempt_ms = 0;
 
-  printf("[RPC] Cliente inicializado\n");
+  printf("Cliente inicializado\n");
   return (RpcSimpleResult){.success = true, .error_code = RPC_OK};
 }
 
@@ -353,19 +382,14 @@ RpcSimpleResult rpc_register_node(uint8_t node_id) {
   RpcSimpleResult result = {0};
   rpc_state.node_id = node_id;
 
-  if (!connect_to_server()) {
-    result.success = false;
-    result.error_code = RPC_DISCONNECTED;
-    return result;
-  }
-
   char request[256];
   char response[RPC_BUFFER_SIZE];
   build_register_node_json(request, sizeof(request), node_id);
 
-  if (!send_and_receive(request, response, sizeof(response))) {
+  RpcError err;
+  if (!rpc_call_with_retry(request, response, sizeof(response), &err)) {
     result.success = false;
-    result.error_code = RPC_TIMEOUT;
+    result.error_code = err;
     return result;
   }
 
@@ -375,47 +399,36 @@ RpcSimpleResult rpc_register_node(uint8_t node_id) {
 RpcClickResult rpc_add_clicks(int clicks, int lamport_ts) {
   RpcClickResult result = {0};
 
-  if (!connect_to_server()) {
-    rpc_state.offline_queue.accumulated_clicks += clicks;
-    rpc_state.offline_queue.last_lamport = lamport_ts;
-
-    result.success = false;
-    result.error_code = RPC_OFFLINE_QUEUED;
-    return result;
-  }
-
   char request[256];
   char response[RPC_BUFFER_SIZE];
   build_add_clicks_json(request, sizeof(request), clicks, lamport_ts);
 
-  if (!send_and_receive(request, response, sizeof(response))) {
-    rpc_state.offline_queue.accumulated_clicks += clicks;
-    rpc_state.offline_queue.last_lamport = lamport_ts;
-
+  RpcError err;
+  if (!rpc_call_with_retry(request, response, sizeof(response), &err)) {
     result.success = false;
-    result.error_code = RPC_DISCONNECTED;
+    result.error_code = err;
     return result;
   }
 
-  return parse_add_clicks_response(response);
+  result = parse_add_clicks_response(response);
+  if (result.success) {
+    printf("RPC OK: global=%d local=%d ts=%d\n", result.global_score,
+           result.local_score, result.lamport_ts);
+  }
+  return result;
 }
 
 RpcPowerupResult rpc_activate_powerup(void) {
   RpcPowerupResult result = {0};
 
-  if (!connect_to_server()) {
-    result.success = false;
-    result.error_code = RPC_DISCONNECTED;
-    return result;
-  }
-
   char request[256];
   char response[RPC_BUFFER_SIZE];
   build_activate_powerup_json(request, sizeof(request));
 
-  if (!send_and_receive(request, response, sizeof(response))) {
+  RpcError err;
+  if (!rpc_call_with_retry(request, response, sizeof(response), &err)) {
     result.success = false;
-    result.error_code = RPC_TIMEOUT;
+    result.error_code = err;
     return result;
   }
 
@@ -425,19 +438,14 @@ RpcPowerupResult rpc_activate_powerup(void) {
 RpcScoreResult rpc_get_scores(void) {
   RpcScoreResult result = {0};
 
-  if (!connect_to_server()) {
-    result.success = false;
-    result.error_code = RPC_DISCONNECTED;
-    return result;
-  }
-
   char request[256];
   char response[RPC_BUFFER_SIZE];
   build_get_scores_json(request, sizeof(request));
 
-  if (!send_and_receive(request, response, sizeof(response))) {
+  RpcError err;
+  if (!rpc_call_with_retry(request, response, sizeof(response), &err)) {
     result.success = false;
-    result.error_code = RPC_TIMEOUT;
+    result.error_code = err;
     return result;
   }
 
@@ -447,47 +455,24 @@ RpcScoreResult rpc_get_scores(void) {
 RpcClickResult rpc_sync_offline(int accumulated_clicks, int lamport_ts) {
   RpcClickResult result = {0};
 
-  if (!connect_to_server()) {
-    result.success = false;
-    result.error_code = RPC_DISCONNECTED;
-    return result;
-  }
-
   char request[256];
   char response[RPC_BUFFER_SIZE];
   build_sync_offline_json(request, sizeof(request), accumulated_clicks,
                           lamport_ts);
 
-  if (!send_and_receive(request, response, sizeof(response))) {
+  RpcError err;
+  if (!rpc_call_with_retry(request, response, sizeof(response), &err)) {
     result.success = false;
-    result.error_code = RPC_TIMEOUT;
+    result.error_code = err;
     return result;
   }
 
-  return parse_add_clicks_response(response);
-}
-
-void rpc_poll(void) {
-  if (rpc_state.offline_queue.accumulated_clicks <= 0) {
-    return;
-  }
-
-  uint32_t now = now_ms();
-  if ((now - rpc_state.last_reconnect_attempt_ms) < RECONNECT_INTERVAL_MS) {
-    return;
-  }
-
-  rpc_state.last_reconnect_attempt_ms = now;
-
-  RpcClickResult result =
-      rpc_sync_offline(rpc_state.offline_queue.accumulated_clicks,
-                       rpc_state.offline_queue.last_lamport);
+  result = parse_add_clicks_response(response);
   if (result.success) {
-    printf("[RPC] Fila drenada com sucesso (%d cliques)\n",
-           rpc_state.offline_queue.accumulated_clicks);
-    rpc_state.offline_queue.accumulated_clicks = 0;
-    rpc_state.offline_queue.last_lamport = 0;
+    printf("RPC OK: global=%d local=%d ts=%d\n", result.global_score,
+           result.local_score, result.lamport_ts);
   }
+  return result;
 }
 
 bool rpc_is_connected(void) { return rpc_state.sock >= 0; }
