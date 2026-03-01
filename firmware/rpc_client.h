@@ -1,49 +1,159 @@
+/**
+ * @file rpc_client.h
+ * @brief API pública de comunicação JSON-RPC com servidor
+ *
+ * Esta é a ÚNICA interface de rede exposta ao firmware.
+ * Nenhum outro arquivo deve incluir lwip/sockets.h.
+ */
+
 #ifndef RPC_CLIENT_H
 #define RPC_CLIENT_H
 
-#include "lwip/ip_addr.h"
-#include "pico/stdlib.h"
 #include <stdbool.h>
 #include <stdint.h>
 
 /**
- * Estrutura para retorno de chamadas RPC parseadas.
+ * Códigos de erro retornados pelas operações RPC.
+ *
+ * @note Campos não preenchidos nos resultados são inicializados com
+ * zero(memset)
+ */
+typedef enum {
+  RPC_OK = 0,            ///< Operação bem-sucedida
+  RPC_TIMEOUT,           ///< Servidor não respondeu a tempo
+  RPC_DISCONNECTED,      ///< Socket fechado, sem conexão
+  RPC_LAMPORT_VIOLATION, ///< Servidor rejeitou por timestamp inválido
+  RPC_RATE_EXCEEDED,     ///< Servidor limitou taxa de cliques
+  RPC_OFFLINE_QUEUED,    ///< Offline, cliques enfileirados localmente
+  RPC_PARSE_ERROR        ///< Resposta JSON mal formatada
+} RpcError;
+
+/**
+ * Resultado de operações simples (init, register).
+ */
+typedef struct {
+  bool success;        ///< true se operação bem-sucedida
+  RpcError error_code; ///< Código de erro (RPC_OK se success)
+} RpcSimpleResult;
+
+/**
+ * Resultado de rpc_add_clicks() e rpc_sync_offline().
+ * Campos válidos apenas se success == true.
  */
 typedef struct {
   bool success;
-  uint32_t global_score;
-  uint32_t node_score;
-  uint32_t lamport_ts;
-  bool milestone;
-  uint32_t milestone_value;
-  bool powerup_active;
-  uint32_t powerup_remaining_s;
-} rpc_result_t;
+  RpcError error_code;
+
+  int global_score;         ///< Score global de todos os nós
+  int local_score;          ///< Score deste nó
+  int lamport_ts;           ///< Timestamp Lamport atualizado
+  bool milestone_triggered; ///< true se atingiu marco
+  int milestone_value;      ///< Valor do marco (válido se milestone_triggered)
+  int accepted_clicks;      ///< Cliques aceitos (pode ser < enviado se
+                            ///< RPC_RATE_EXCEEDED)
+} RpcClickResult;
 
 /**
- * Define o IP e a porta fornecidos (geralmente via discovery).
+ * Resultado de rpc_activate_powerup().
  */
-void rpc_client_set_server(const ip_addr_t *ip, uint16_t port);
+typedef struct {
+  bool success;
+  RpcError error_code;
+
+  int powerup_remaining_s; ///< Segundos restantes de powerup (10s máx)
+} RpcPowerupResult;
 
 /**
- * Configura o cliente para usar o IP de fallback predefinido (DEV_SERVER_IP).
+ * Resultado de rpc_get_scores().
+ */
+typedef struct {
+  bool success;
+  RpcError error_code;
+
+  int global_score;   ///< Score global
+  int node_scores[3]; ///< Scores individuais [node_0, node_1, node_2]
+} RpcScoreResult;
+
+/**
+ * Inicializa cliente RPC.
+ * Deve ser chamado uma vez no boot, antes de qualquer outra função.
+ * Cria task de reconexão automática em background.
+ *
+ * @return RpcSimpleResult com status da inicialização
+ */
+RpcSimpleResult rpc_init(void);
+
+/**
+ * Registra este nó no servidor.
+ *
+ * @param node_id ID do nó (0, 1 ou 2)
+ * @return RpcSimpleResult - falha se servidor offline
+ */
+RpcSimpleResult rpc_register_node(uint8_t node_id);
+
+/**
+ * Envia cliques para o servidor.
+ * Se offline, enfileira localmente e retorna RPC_OFFLINE_QUEUED.
+ * Fila é sincronizada automaticamente quando servidor voltar.
+ *
+ * @param clicks Número de cliques a enviar
+ * @param lamport_ts Timestamp Lamport local atual
+ * @return RpcClickResult com scores atualizados
+ */
+RpcClickResult rpc_add_clicks(int clicks, int lamport_ts);
+
+/**
+ * Ativa power-up (multiplicador x3 por 10 segundos).
+ *
+ * @return RpcPowerupResult com tempo restante se já ativo
+ */
+RpcPowerupResult rpc_activate_powerup(void);
+
+/**
+ * Consulta scores de todos os nós.
+ *
+ * @return RpcScoreResult com placar global e individual
+ */
+RpcScoreResult rpc_get_scores(void);
+
+/**
+ * Sincroniza cliques acumulados durante período offline.
+ * Chamada automaticamente pela task de reconexão.
+ *
+ * @param accumulated_clicks Total de cliques acumulados
+ * @param lamport_ts Último Lamport conhecido
+ * @return RpcClickResult com scores atualizados
+ */
+RpcClickResult rpc_sync_offline(int accumulated_clicks, int lamport_ts);
+
+/**
+ * Configura endereço do servidor RPC (descoberto via mDNS/service discovery).
+ *
+ * @param ip_str String com endereço IP (ex: "192.168.0.10")
+ * @param port Porta do servidor (ex: 8765)
+ *
+ * Exemplo:
+ *   rpc_client_set_server("192.168.0.10", 8765);
+ */
+void rpc_client_set_server(const char *ip_str, uint16_t port);
+
+/**
+ * Usa servidor fallback hardcoded (192.168.0.10:8765).
+ * Chamado quando discovery falha.
  */
 void rpc_client_set_server_fallback(void);
 
 /**
- * Envia um lote de cliques para o servidor configurado via TCP.
- * Retorna false se o servidor não estiver configurado ou em caso de falha de
- * rede.
+ * Polling de reconexão e drenagem de fila offline.
+ * Deve ser chamado periodicamente no loop principal.
  */
-bool rpc_client_send_clicks(uint32_t clicks);
+void rpc_poll(void);
 
 /**
- * Retorna true se houver um IP configurado para envio de pacotes.
+ * Verifica se está conectado ao servidor.
+ *
+ * @return true se conectado, false caso contrário
  */
-bool rpc_client_has_server(void);
-
-/* Helpers de Parsing (Isolados para teste e clareza) */
-bool rpc_parse_uint32_field(const char *json, const char *key, uint32_t *out);
-bool rpc_has_bool_true(const char *json, const char *key);
+bool rpc_is_connected(void);
 
 #endif // RPC_CLIENT_H

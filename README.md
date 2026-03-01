@@ -87,14 +87,28 @@ server/
   domain/       lógica de jogo (GameManager, NodeRegistry)
   infra/        persistência (db.py) e servidores (rpc)
   dashboard/    sistema de visualização modular
+  
+firmware/
+  main.c                fluxo principal e loop Multicore
+  rpc_client.c/h        API pública de rede — único ponto de lwIP
+  
+  **Nova Interface RPC (v2.0)**
+  - `rpc_client.h` expõe 9 funções (6 operacionais + 3 utilitárias)
+  - Structs especializados por operação (evita desperdício RAM)
+  - Reconexão automática com fila offline
+  - Enum `RpcError` para tratamento semântico de erros
+  - Nenhum outro arquivo conhece lwIP ou sockets
+  
+  middleware/
+    lamport.c/h         relógio de Lamport thread-safe
     shared_state.c/h    estado compartilhado entre rotinas (spinlock)
   drivers/              em desenvolvimento (OLED, LED Matrix)
   audio/                em desenvolvimento (Buzzer)
   net/                  em desenvolvimento (RPC, Discovery)
-
-server/                 planejado
-
+  
 docs/                   documentação técnica
+  - [Arquitetura RPC](docs/rpc_client_api.md)
+  - [Setup FreeRTOS](docs/freertos_setup.md)
 ```
 
 ---

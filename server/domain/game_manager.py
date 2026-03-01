@@ -34,19 +34,19 @@ class GameManager():
         
         return {"error": "ALREADY_ACTIVE"}
 
-    async def add_clicks(self, node_id, clicks, last_known_lamport_ts):
+    async def add_clicks(self, node_id, clicks, lamport_ts):
         if self.lock:
             async with self.lock:
-                return await self._add_clicks_logic(node_id, clicks, last_known_lamport_ts)
-        return await self._add_clicks_logic(node_id, clicks, last_known_lamport_ts)
+                return await self._add_clicks_logic(node_id, clicks, lamport_ts)
+        return await self._add_clicks_logic(node_id, clicks, lamport_ts)
 
-    async def _add_clicks_logic(self, node_id, clicks, last_known_lamport_ts):
+    async def _add_clicks_logic(self, node_id, clicks, lamport_ts):
         now = time.time()
         
         # Sincronização causal (Lamport)
         last_ts = await self.lamport_clock.get_last_by_node(node_id)
-        if last_known_lamport_ts <= last_ts:
-            curr_lamport = await self.lamport_clock.update(node_id, last_known_lamport_ts)
+        if lamport_ts <= last_ts:
+            curr_lamport = await self.lamport_clock.update(node_id, lamport_ts)
             return {"error": "LAMPORT_VIOLATION", "lamport_ts": curr_lamport}
 
         node = self._get_node_data(node_id)
@@ -87,7 +87,7 @@ class GameManager():
         self.global_score += actual_clicks
         
         await self.game_repo.update_score(node_id, node["score"])
-        lamport_ts = await self.lamport_clock.update(node_id, last_known_lamport_ts)
+        lamport_ts = await self.lamport_clock.update(node_id, lamport_ts)
         
         # Detecção de Milestones (Pode cruzar múltiplos marcos)
         milestones_reached = []
@@ -111,13 +111,13 @@ class GameManager():
         }
         return response
 
-    async def sync_offline(self, node_id, accumulated_clicks, last_known_lamport_ts):
+    async def sync_offline(self, node_id, accumulated_clicks, lamport_ts):
         if self.lock:
             async with self.lock:
-                return await self._sync_offline_logic(node_id, accumulated_clicks, last_known_lamport_ts)
-        return await self._sync_offline_logic(node_id, accumulated_clicks, last_known_lamport_ts)
+                return await self._sync_offline_logic(node_id, accumulated_clicks, lamport_ts)
+        return await self._sync_offline_logic(node_id, accumulated_clicks, lamport_ts)
 
-    async def _sync_offline_logic(self, node_id, accumulated_clicks, last_known_lamport_ts):
+    async def _sync_offline_logic(self, node_id, accumulated_clicks, lamport_ts):
         # Sync offline geralmente pula o rate limiting pois são cliques históricos legítimos
         # Mas a lógica de milestones deve ser aplicada.
         now = time.time()
@@ -134,7 +134,7 @@ class GameManager():
         self.global_score += accepted
         
         await self.game_repo.update_score(node_id, node["score"])
-        lamport_ts = await self.lamport_clock.update(node_id, last_known_lamport_ts)
+        lamport_ts = await self.lamport_clock.update(node_id, lamport_ts)
         
         milestones_reached = []
         for m in MILESTONES:

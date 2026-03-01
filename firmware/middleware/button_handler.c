@@ -33,14 +33,11 @@ static void gpio_irq_callback(uint gpio, uint32_t events) {
     if (now - last_a_us >= DEBOUNCE_US) {
       last_a_us = now;
       shared_state_increment_pending_clicks();
-      printf("[IRQ] Button A pressed! (Shared State Increment)\n");
     }
   } else if (gpio == BUTTON2_PIN && (events & GPIO_IRQ_EDGE_FALL)) {
     if (now - last_b_us >= DEBOUNCE_US) {
       last_b_us = now;
-      // Botão B por enquanto não incrementa nada no shared_state ou
-      // podemos adicionar outro campo se necessário.
-      printf("[IRQ] Button B pressed!\n");
+      shared_state_request_turbo_activation();
     }
   }
 }

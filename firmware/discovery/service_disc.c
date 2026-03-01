@@ -1,6 +1,5 @@
 #include "service_disc.h"
 #include "lwip/udp.h"
-#include "pico/cyw43_arch.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -93,8 +92,6 @@ bool service_disc_discover(ip_addr_t *out_ip, uint16_t *out_port,
 
   // Poll bloqueante usando tempo absoluto
   while (absolute_time_diff_us(get_absolute_time(), timeout_deadline) > 0) {
-    cyw43_arch_poll(); // Mandatório em NO_SYS=1
-
     if (g_disc_success) {
       break;
     }

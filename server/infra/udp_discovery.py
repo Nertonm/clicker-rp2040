@@ -14,13 +14,15 @@ class DiscoveryDatagramProtocol(asyncio.DatagramProtocol):
     def datagram_received(self, data, addr):
         try:
             message = data.decode().strip()
+            print(f"[UDP-Discovery] Recebido: '{message}' de {addr}")
             if message.startswith(DISCOVER_PREFIX):
                 parts = message.split(":")
                 if len(parts) == 3 and parts[1] == "NODE_ID":
                     response = f"{SERVER_RESPONSE}:{self.rpc_port}"
+                    print(f"[UDP-Discovery] Enviando resposta para {addr}: {response}")
                     self.transport.sendto(response.encode(), addr)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[UDP-Discovery] Erro ao processar pacote: {e}")
 
 async def start_udp_discovery(loop, rpc_port, discovery_port=9999):
     transport, protocol = await loop.create_datagram_endpoint(

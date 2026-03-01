@@ -6,6 +6,14 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Evita kit/cache de host gcc quando o projeto exige toolchain ARM
+if (CMAKE_C_COMPILER MATCHES "ccache/bin/gcc$" OR CMAKE_C_COMPILER MATCHES "/gcc$")
+    unset(CMAKE_C_COMPILER CACHE)
+endif()
+if (CMAKE_CXX_COMPILER MATCHES "ccache/bin/g\\+\\+$" OR CMAKE_CXX_COMPILER MATCHES "/g\\+\\+$")
+    unset(CMAKE_CXX_COMPILER CACHE)
+endif()
+
 # Initialise pico_sdk from installed location
 # (note this can come from environment, CMake cache etc)
 
@@ -19,8 +27,25 @@ set(sdkVersion 2.2.0)
 set(toolchainVersion 14_2_Rel1)
 set(picotoolVersion 2.2.0-a4)
 set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
+if (NOT EXISTS ${picoVscode} AND DEFINED ENV{PICO_SDK_PATH})
+    get_filename_component(_PICO_SDK_SDK_DIR "$ENV{PICO_SDK_PATH}" DIRECTORY)
+    get_filename_component(_PICO_SDK_ROOT_DIR "${_PICO_SDK_SDK_DIR}" DIRECTORY)
+    set(picoVscode ${_PICO_SDK_ROOT_DIR}/cmake/pico-vscode.cmake)
+endif()
 if (EXISTS ${picoVscode})
     include(${picoVscode})
+endif()
+
+# Fallback do toolchain ARM quando pico-vscode.cmake não configura compilador
+if (DEFINED ENV{PICO_SDK_PATH})
+    get_filename_component(_PICO_SDK_SDK_DIR "$ENV{PICO_SDK_PATH}" DIRECTORY)
+    get_filename_component(_PICO_SDK_ROOT_DIR "${_PICO_SDK_SDK_DIR}" DIRECTORY)
+    set(_PICO_ARM_GCC ${_PICO_SDK_ROOT_DIR}/toolchain/${toolchainVersion}/bin/arm-none-eabi-gcc)
+    set(_PICO_ARM_GXX ${_PICO_SDK_ROOT_DIR}/toolchain/${toolchainVersion}/bin/arm-none-eabi-g++)
+    if (EXISTS ${_PICO_ARM_GCC} AND EXISTS ${_PICO_ARM_GXX})
+        set(CMAKE_C_COMPILER ${_PICO_ARM_GCC} CACHE FILEPATH "ARM GCC compiler" FORCE)
+        set(CMAKE_CXX_COMPILER ${_PICO_ARM_GXX} CACHE FILEPATH "ARM G++ compiler" FORCE)
+    endif()
 endif()
 # ====================================================================================
 set(PICO_BOARD pico_w CACHE STRING "Board type")
@@ -30,22 +55,43 @@ include(pico_sdk_import.cmake)
 
 project(firmware C CXX ASM)
 
+option(STRESS_TEST "Enable firmware stress test tasks" OFF)
+
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
+
+# Importa FreeRTOS Kernel (RP2040 port) após pico_sdk_init()
+set(FREERTOS_KERNEL_PATH "${CMAKE_CURRENT_LIST_DIR}/../third_party/FreeRTOS-Kernel" CACHE PATH "Path to FreeRTOS Kernel" FORCE)
+if (EXISTS "${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2040/FreeRTOS_Kernel_import.cmake")
+    include(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2040/FreeRTOS_Kernel_import.cmake)
+else()
+    message(FATAL_ERROR "FreeRTOS_Kernel_import.cmake não encontrado em ${FREERTOS_KERNEL_PATH}. Configure FREERTOS_KERNEL_PATH.")
+endif()
 
 # Add executable. Default name is the project name, version 0.1
 
 add_executable(firmware
     main.c
+    freertos_hooks.c
     middleware/button_handler.c
     middleware/shared_state.c
     middleware/core1_display.c
+    middleware/lamport.c
     drivers/display/display.c
     drivers/display/ssd1306_i2c.c
     drivers/display/ws2812.c
     audio/buzzer.c
     discovery/service_disc.c
+    rpc_client.c
 )
+
+if(STRESS_TEST)
+    target_sources(firmware PRIVATE
+        tests/stress_test.c
+    )
+    target_compile_definitions(firmware PRIVATE STRESS_TEST=1)
+    message(STATUS "STRESS_TEST habilitado")
+endif()
 
 pico_set_program_name(firmware "firmware")
 pico_set_program_version(firmware "0.1")
@@ -63,11 +109,12 @@ pico_enable_stdio_usb(firmware 1)
 target_link_libraries(firmware
         pico_stdlib
         pico_multicore
+    pico_cyw43_arch_lwip_sys_freertos
+    FreeRTOS-Kernel-Heap4
         hardware_i2c
         hardware_pio
         hardware_pwm
         hardware_adc
-        pico_cyw43_arch_lwip_poll
 )
 
 # Add the standard include files to the build
@@ -83,7 +130,9 @@ target_include_directories(firmware PRIVATE
 pico_add_extra_outputs(firmware)
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
-    DISPLAY_SSD1306=1   
+    DISPLAY_SSD1306=1
+    PICO_HEAP_SIZE=0x14000
+    configTICK_RATE_HZ=1000
 )
 
 # Injeta credenciais de WiFi se fornecidas no build
@@ -115,4 +164,9 @@ endif()
 target_compile_definitions(firmware PRIVATE
     NODE_ID=${NODE_ID}
 )
+if(DEFINED FALLBACK_SERVER_IP)
+    target_compile_definitions(firmware PRIVATE FALLBACK_SERVER_IP="${FALLBACK_SERVER_IP}")
+    message(STATUS "Fallback IP configurado como: ${FALLBACK_SERVER_IP}")
+endif()
+
 message(STATUS "NODE_ID configurado como: ${NODE_ID}")

@@ -74,4 +74,12 @@ void shared_state_set_fallback_in_use(bool in_use);
 bool shared_state_get_server_error_active(void);
 void shared_state_set_server_error_active(bool active);
 
+// Turbo/Power-up State
+void shared_state_request_turbo_activation(void);
+bool shared_state_take_turbo_activation_requested(void);
+bool shared_state_get_turbo_active(void);
+void shared_state_set_turbo_active(bool active);
+uint32_t shared_state_get_turbo_until_ms(void);
+void shared_state_set_turbo_until_ms(uint32_t until_ms);
+
 #endif // SHARED_STATE_H

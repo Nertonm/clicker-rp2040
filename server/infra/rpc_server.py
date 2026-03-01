@@ -40,7 +40,7 @@ class RPCDispatcher:
         self.simulate_delay_ms = int(delay_ms)
         return {"status": "SUCCESS", "new_delay": self.simulate_delay_ms}
 
-    async def dispatch(self, request_json):
+    async def dispatch(self, request_json, client_ip=None):
         try:
             req = json.loads(request_json)
         except json.JSONDecodeError:
@@ -56,17 +56,26 @@ class RPCDispatcher:
         if method not in self.handlers or method.startswith("_"):
             return self._error_response(req_id, -32601, "Method not found")
 
+        # Injeta o IP do cliente se for um registro
+        if method == "register_node" and isinstance(params, dict):
+            params["ip"] = client_ip
+
         handler = self.handlers[method]
         start_process_time = time.time()
         node_id = params.get("node_id") if isinstance(params, dict) else None
         
         try:
             if isinstance(params, list):
-                result = await handler(*params)
+                res = handler(*params)
             elif isinstance(params, dict):
-                result = await handler(**params)
+                res = handler(**params)
             else:
-                result = await handler()
+                res = handler()
+
+            if asyncio.iscoroutine(res):
+                result = await res
+            else:
+                result = res
 
             if self.simulate_delay_ms > 0:
                 await asyncio.sleep(self.simulate_delay_ms / 1000)
@@ -102,7 +111,8 @@ async def handle_client(reader, writer, dispatcher):
             if not request_str:
                 continue
                 
-            response = await dispatcher.dispatch(request_str)
+            client_ip = writer.get_extra_info('peername')[0]
+            response = await dispatcher.dispatch(request_str, client_ip=client_ip)
             response_str = json.dumps(response) + "\n"
             writer.write(response_str.encode())
             await writer.drain()

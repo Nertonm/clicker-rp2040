@@ -7,13 +7,16 @@
  */
 typedef struct {
   uint32_t pending_clicks;
+  uint32_t pending_turbo_activations;
   uint32_t local_score;
   uint32_t global_score;
   uint32_t node_scores[MAX_NODES];
+  uint32_t turbo_until_ms;
   connection_status_t connection_status;
   uint32_t current_lamport_ts;
   bool milestone_triggered;
   bool led_flash_requested;
+  bool turbo_active;
   bool fallback_in_use;
   bool server_error_active;
 } shared_state_t;
@@ -205,5 +208,47 @@ bool shared_state_get_server_error_active(void) {
 void shared_state_set_server_error_active(bool active) {
   LOCK_STATE();
   state.server_error_active = active;
+  UNLOCK_STATE();
+}
+
+void shared_state_request_turbo_activation(void) {
+  LOCK_STATE();
+  state.pending_turbo_activations++;
+  UNLOCK_STATE();
+}
+
+bool shared_state_take_turbo_activation_requested(void) {
+  LOCK_STATE();
+  bool requested = state.pending_turbo_activations > 0;
+  if (requested) {
+    state.pending_turbo_activations--;
+  }
+  UNLOCK_STATE();
+  return requested;
+}
+
+bool shared_state_get_turbo_active(void) {
+  LOCK_STATE();
+  bool val = state.turbo_active;
+  UNLOCK_STATE();
+  return val;
+}
+
+void shared_state_set_turbo_active(bool active) {
+  LOCK_STATE();
+  state.turbo_active = active;
+  UNLOCK_STATE();
+}
+
+uint32_t shared_state_get_turbo_until_ms(void) {
+  LOCK_STATE();
+  uint32_t val = state.turbo_until_ms;
+  UNLOCK_STATE();
+  return val;
+}
+
+void shared_state_set_turbo_until_ms(uint32_t until_ms) {
+  LOCK_STATE();
+  state.turbo_until_ms = until_ms;
   UNLOCK_STATE();
 }

@@ -37,3 +37,4 @@ Thumbs.db
 
 # Project Specific
 firmware/blink.pio.h
+server/avocado.db

@@ -1,4 +1,5 @@
 import asyncio
+import socket
 import traceback
 from app import config
 from infra import db
@@ -18,6 +19,17 @@ async def background_tasks(node_registry):
         except Exception:
             traceback.print_exc()
         await asyncio.sleep(10)
+
+def get_local_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # Não envia nada, apenas abre pra pegar a interface de saída
+        s.connect(('8.8.8.8', 80))
+        return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
 
 async def main():
     # 1. Inicializa Banco de Dados
@@ -62,10 +74,15 @@ async def main():
     # 6. Inicia Tasks de Background
     asyncio.create_task(background_tasks(registry))
 
-    print(f"AbacateOS iniciado!")
+    local_ip = get_local_ip()
+    print("\n" + "="*50)
+    print(f"AbacateOS - SERVIDOR INICIADO")
+    print(f"IP LOCAL: {local_ip}")
+    print("="*50 + "\n")
+    print(f"Serviços:")
     print(f" - RPC: {config.RPC_HOST}:{config.RPC_PORT}")
     print(f" - UDP Discovery: port {config.UDP_DISCOVER_PORT}")
-    print(f" - Dashboard: http://localhost:{config.DASHBOARD_HTTP_PORT}")
+    print(f" - Dashboard: http://{local_ip}:{config.DASHBOARD_HTTP_PORT}")
     
     async with rpc_server:
         await rpc_server.serve_forever()
