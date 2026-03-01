@@ -31,3 +31,13 @@ class GameRepository:
     async def insert_milestone(self, value, node_id, lamport_ts, now):
         """Persiste a conquista de um milestone."""
         await db.insert_milestone(value, node_id, lamport_ts, now)
+
+    async def insert_lamport_violation(self, node_id, received_ts, server_ts):
+        """Persiste uma violação de ordenação causal do relógio de Lamport."""
+        from infra.db import insert_lamport_violation
+        await insert_lamport_violation(node_id, received_ts, server_ts)
+
+    async def get_recent_violations(self, limit=50):
+        """Retorna as violações mais recentes do banco."""
+        from infra.db import get_recent_violations
+        return await get_recent_violations(limit)

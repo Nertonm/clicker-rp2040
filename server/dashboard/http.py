@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from pathlib import Path
 
@@ -31,6 +32,16 @@ class DashboardHTTPServer:
             if path in ('/', '/index.html'):
                 file_path = self.base_path / "templates" / "index.html"
                 await self.serve_file(writer, file_path, "text/html")
+            elif path == "/api/violations":
+                from infra.db import get_recent_violations
+                # Limite de 100 para auditoria via HTTP
+                violations = await get_recent_violations(limit=100)
+                body = json.dumps({
+                    "violations": violations,
+                    "total": len(violations)
+                }).encode('utf-8')
+                await self.send_response(writer, 200, body, "application/json")
+                return
             elif path.startswith('/static/'):
                 # Sanitização básica de path
                 relative_path = path.lstrip('/')

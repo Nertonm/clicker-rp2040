@@ -26,9 +26,15 @@ class DashboardStateService:
         # Últimos 20 eventos
         events = await db.get_recent_events(limit=20)
 
+        # Últimas 20 violações de Lamport
+        from infra.db import get_recent_violations
+        # Limite reduzido para o snapshot do WebSocket para economizar largura de banda
+        violations = await get_recent_violations(limit=20)
+
         return {
             "global_score": global_score,
             "nodes": nodes,
             "events": events,
-            "active_connections": active_conns
+            "active_connections": active_conns,
+            "violations": violations
         }

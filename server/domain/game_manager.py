@@ -47,6 +47,12 @@ class GameManager():
         last_ts = await self.lamport_clock.get_last_by_node(node_id)
         if lamport_ts <= last_ts:
             curr_lamport = await self.lamport_clock.update(node_id, lamport_ts)
+            # Persiste a violação para auditoria
+            await self.game_repo.insert_lamport_violation(
+                node_id, 
+                received_ts=lamport_ts, 
+                server_ts=last_ts
+            )
             return {"error": "LAMPORT_VIOLATION", "lamport_ts": curr_lamport}
 
         node = self._get_node_data(node_id)

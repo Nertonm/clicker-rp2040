@@ -47,6 +47,19 @@ async def init_db():
                 )
             """
         )
+
+        # Tabela de violações de Lamport (Append-only, auditoria)
+        await db.execute(
+            """
+                CREATE TABLE IF NOT EXISTS lamport_violations(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    node_id TEXT NOT NULL,
+                    received_ts INTEGER NOT NULL,
+                    server_ts INTEGER NOT NULL,
+                    created_at REAL NOT NULL
+                )
+            """
+        )
         
         await db.commit()
 
@@ -165,6 +178,32 @@ async def get_milestones_session(session_started_ts):
                 SELECT value, node_id, lamport_ts, created_at
                 FROM milestones WHERE created_at >= ? ORDER BY lamport_ts ASC
             """, (session_started_ts,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+async def insert_lamport_violation(node_id, received_ts, server_ts):
+    """Registra uma violação de ordenação causal do relógio de Lamport."""
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute(
+            """
+                INSERT INTO lamport_violations (
+                    node_id, received_ts, server_ts, created_at
+                ) VALUES (?, ?, ?, ?)
+            """, (node_id, received_ts, server_ts, time.time())
+        )
+        await db.commit()
+
+async def get_recent_violations(limit=50):
+    """Retorna as violações mais recentes para auditoria."""
+    async with aiosqlite.connect(DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+                SELECT * FROM lamport_violations 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            """, (limit,)
         ) as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
