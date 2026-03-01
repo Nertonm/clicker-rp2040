@@ -156,7 +156,47 @@ void task_rpc(void *param) {
         RpcSimpleResult reg = rpc_register_node((uint8_t)NODE_ID);
         if (reg.success) {
           registered = true;
-          consecutive_rpc_failures = 0;  // Reset ao reconectar
+          consecutive_rpc_failures = 0; // Reset ao reconectar
+
+          // --- Início da lógica de sincronização ---
+          uint32_t pending_snapshot = shared_state_take_pending_clicks();
+
+          if (pending_snapshot > 0) {
+            shared_state_set_connection_status(STATUS_SYNCING);
+            printf("[RPC] Sincronizando %lu cliques pendentes...\n",
+                   (unsigned long)pending_snapshot);
+
+            uint32_t lamport_sent = lamport_tick();
+            RpcClickResult sync_res =
+                rpc_sync_offline((int)pending_snapshot, lamport_sent);
+
+            if (sync_res.success) {
+              lamport_update((uint32_t)sync_res.lamport_ts);
+              shared_state_set_scores(&sync_res);
+
+              printf("[RPC] Sync completo: global=%d local=%d lamport=%lu\n",
+                     sync_res.global_score, sync_res.local_score,
+                     (unsigned long)sync_res.lamport_ts);
+
+              if (sync_res.milestone_triggered) {
+                shared_state_set_milestone_triggered(true);
+                shared_state_set_led_flash_requested(true);
+                printf("[MILESTONE] Marco atingido durante sync: %d\n",
+                       sync_res.milestone_value);
+              }
+
+              vTaskDelay(pdMS_TO_TICKS(500));
+            } else {
+              printf("[RPC] ERRO: Sync falhou (erro=%d), voltando para OFFLINE\n",
+                     sync_res.error_code);
+              shared_state_restore_clicks(pending_snapshot);
+              shared_state_set_connection_status(STATUS_OFFLINE);
+              registered = false;
+              continue;
+            }
+          }
+          // --- Fim da lógica de sincronização ---
+
           shared_state_set_connection_status(STATUS_ONLINE);
           shared_state_set_server_error_active(false);
           printf("[RPC] Nó %d registrado\n", NODE_ID);

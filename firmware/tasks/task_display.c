@@ -118,6 +118,9 @@ void task_display(void *param) {
 
     if (turbo_active) {
       snprintf(row3, sizeof(row3), "TURBO x3");
+    } else if (status == STATUS_SYNCING) {
+      // [>] = símbolo de "enviando" (Unicode ↻ não funciona no SSD1306)
+      snprintf(row3, sizeof(row3), "[>] SYNCING P:%lu", (unsigned long)pending);
     } else if (status == STATUS_OFFLINE) {
       // Formato compacto para display de 128x64 pixels (aprox. 21 chars/linha)
       snprintf(row3, sizeof(row3), "[o] OFFLINE P:%lu", (unsigned long)pending);

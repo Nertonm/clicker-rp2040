@@ -20,6 +20,20 @@
 
 /* Evita conflito de struct timeval com newlib (sys/_timeval.h) */
 #define LWIP_TIMEVAL_PRIVATE 0
+
+/** Mailbox sizes - obrigatórios com NO_SYS=0 (FreeRTOS) */
+#define TCPIP_MBOX_SIZE              8
+#define DEFAULT_RAW_RECVMBOX_SIZE    8
+#define DEFAULT_UDP_RECVMBOX_SIZE    8
+#define DEFAULT_TCP_RECVMBOX_SIZE    8
+#define DEFAULT_ACCEPTMBOX_SIZE      8
+
+/** Thread configuration - obrigatório com NO_SYS=0 (FreeRTOS) */
+#define TCPIP_THREAD_STACKSIZE       1024
+#define TCPIP_THREAD_PRIO            6  /* configMAX_PRIORITIES(8) - 2 */
+#define DEFAULT_THREAD_STACKSIZE     1024
+#define DEFAULT_THREAD_PRIO          5  /* configMAX_PRIORITIES(8) - 3 */
+#define LWIP_FREERTOS_THREAD_STACKSIZE_IS_STACKWORDS 1
 /** @} */
 
 /** @name Gerenciamento de Memória */

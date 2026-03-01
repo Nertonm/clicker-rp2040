@@ -104,6 +104,7 @@ class GameManager():
                 await self.game_repo.insert_milestone(m, node_id, lamport_ts, now)
 
         await self.game_repo.insert_event(node_id, clicks, accepted, rate_exceeded, lamport_ts)
+        await self.node_registry.heartbeat(node_id)
 
         response = {
             "status": "RATE_EXCEEDED" if rate_exceeded else "SUCCESS",
@@ -124,24 +125,64 @@ class GameManager():
         return await self._sync_offline_logic(node_id, accumulated_clicks, lamport_ts)
 
     async def _sync_offline_logic(self, node_id, accumulated_clicks, lamport_ts):
-        # Sync offline geralmente pula o rate limiting pois são cliques históricos legítimos
-        # Mas a lógica de milestones deve ser aplicada.
+        """
+        Reconciliação de cliques acumulados durante período offline.
+        Aplica rate limiting proporcional ao tempo de ausência: 50 clicks/s × tempo_offline.
+        """
         now = time.time()
+        
+        # Atualiza status para SYNCING (visível no dashboard)
         await self.node_registry.load_from_db()
         await self.node_registry.update_status(node_id, "SYNCING")
         
+        # Carrega estado do nó do banco de dados
         db_node = await self.game_repo.get_node_last_seen_score(node_id)
         node = self._get_node_data(node_id)
         node["score"] = db_node["score"]
         
+        # ============================================================
+        # RATE LIMITING PROPORCIONAL AO TEMPO OFFLINE
+        # ============================================================
+        
+        # Calcula tempo offline baseado em last_seen (timestamp Unix)
+        last_seen = db_node.get("last_seen")
+        
+        if last_seen is None:
+            # Primeira sincronização deste nó: aceita tudo
+            accepted = accumulated_clicks
+            rejected = 0
+            print(f"[SYNC] Nó {node_id}: primeira sincronização, aceitando {accumulated_clicks} cliques")
+        else:
+            offline_seconds = max(0, now - last_seen)
+            # Limite máximo: RATE_LIMIT clicks/s × tempo offline
+            max_allowed = int(RATE_LIMIT * offline_seconds)
+            
+            # Aceita apenas o mínimo entre cliques enviados e limite calculado
+            accepted = min(accumulated_clicks, max_allowed)
+            rejected = accumulated_clicks - accepted
+            
+            # Log detalhado de rate limiting
+            if rejected > 0:
+                print(f"[SYNC] Nó {node_id}: {accumulated_clicks} enviados, "
+                      f"{accepted} aceitos, {rejected} descartados "
+                      f"(offline por {offline_seconds:.1f}s, limite={max_allowed})")
+            else:
+                print(f"[SYNC] Nó {node_id}: {accepted} cliques aceitos "
+                      f"(offline por {offline_seconds:.1f}s)")
+        
+        # ============================================================
+        # FIM DO RATE LIMITING
+        # ============================================================
+        
+        # Atualização de scores e milestones (lógica existente)
         before_global = self.global_score
-        accepted = accumulated_clicks # Histórico
         node["score"] += accepted
         self.global_score += accepted
         
         await self.game_repo.update_score(node_id, node["score"])
         lamport_ts = await self.lamport_clock.update(node_id, lamport_ts)
         
+        # Detecção de milestones
         milestones_reached = []
         for m in MILESTONES:
             if m not in self.milestones_done and before_global < m <= self.global_score:
@@ -149,13 +190,25 @@ class GameManager():
                 milestones_reached.append(m)
                 await self.game_repo.insert_milestone(m, node_id, lamport_ts, now)
 
-        await self.game_repo.insert_event(node_id, accumulated_clicks, accepted, False, lamport_ts)
+        # Persiste evento (rate_exceeded=True se houve rejeição)
+        await self.game_repo.insert_event(
+            node_id, 
+            accumulated_clicks,  # Total enviado
+            accepted,            # Total aceito
+            rejected > 0,        # Flag rate_exceeded
+            lamport_ts
+        )
+        
+        # Volta para status ACTIVE
         await self.node_registry.update_status(node_id, "ACTIVE")
+        await self.node_registry.heartbeat(node_id) # Persiste last_seen no banco
+        node["last_ts"] = now
 
+        # Retorna estado completo
         return {
             "status": "SUCCESS",
             "accepted_clicks": accepted,
-            "rejected_clicks": 0,
+            "rejected_clicks": rejected,
             "global_score": self.global_score,
             "node_score": node["score"],
             "lamport_ts": lamport_ts,
