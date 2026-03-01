@@ -1,27 +1,43 @@
+/**
+ * @file shared_state.c
+ * @brief Implementação do gerenciamento de estado compartilhado entre núcleos.
+ *
+ * Utiliza spinlocks de hardware do RP2040 para garantir que o acesso às
+ * variáveis globais de estado seja atômico e seguro entre o Core 0 e Core 1.
+ *
+ * @author
+ * @date 2026-03-01
+ */
+
 #include "shared_state.h"
 #include "hardware/sync.h"
 #include <string.h>
 
 /**
  * @brief Estrutura centralizada para estado compartilhado entre cores.
+ *
+ * Esta estrutura armazena todos os dados voláteis que precisam ser
+ * acessados ou modificados por diferentes tarefas ou núcleos.
  */
 typedef struct {
-  uint32_t pending_clicks;
-  uint32_t pending_turbo_activations;
-  uint32_t local_score;
-  uint32_t global_score;
-  uint32_t node_scores[MAX_NODES];
-  uint32_t turbo_until_ms;
-  connection_status_t connection_status;
-  uint32_t current_lamport_ts;
-  bool milestone_triggered;
-  bool led_flash_requested;
-  bool turbo_active;
-  bool fallback_in_use;
-  bool server_error_active;
+  uint32_t pending_clicks;           /**< Contador de cliques do botão A aguardando processamento. */
+  uint32_t pending_turbo_activations; /**< Contador de pedidos de ativação de turbo do botão B. */
+  uint32_t local_score;              /**< Pontuação local do dispositivo. */
+  uint32_t global_score;             /**< Pontuação global da rede. */
+  uint32_t node_scores[MAX_NODES];   /**< Array de pontuações individuais de todos os nós. */
+  uint32_t turbo_until_ms;           /**< Timestamp de expiração do modo turbo. */
+  connection_status_t connection_status; /**< Estado atual da conexão WiFi/RPC. */
+  bool milestone_triggered;          /**< Flag indicando que um marco foi atingido. */
+  bool led_flash_requested;          /**< Flag solicitando feedback visual rápido (flash). */
+  bool turbo_active;                 /**< Indica se o modo turbo está atualmente em vigor. */
+  bool fallback_in_use;              /**< Indica se o IP de fallback está sendo utilizado. */
+  bool server_error_active;          /**< Indica se o servidor reportou erro persistente. */
 } shared_state_t;
 
+/** @brief Instância privada do estado. */
 static shared_state_t state;
+
+/** @brief Ponteiro para a instância do spinlock de hardware. */
 static spin_lock_t *state_lock;
 
 void shared_state_init(void) {
@@ -31,14 +47,23 @@ void shared_state_init(void) {
   state.fallback_in_use = false;
   state.server_error_active = false;
 
-  // Aloca um spinlock de hardware
+  // Aloca um spinlock de hardware disponível
   int lock_num = spin_lock_claim_unused(true);
   state_lock = spin_lock_instance(lock_num);
 }
 
-// Macros auxiliares para reduzir repetição de código com spinlock
+/** 
+ * @brief Macro para adquirir o lock e desabilitar interrupções locais.
+ * @note Armazena o estado anterior das interrupções na variável local 'irq_status'.
+ */
 #define LOCK_STATE() uint32_t irq_status = spin_lock_blocking(state_lock)
+
+/** 
+ * @brief Macro para liberar o lock e restaurar o estado das interrupções.
+ */
 #define UNLOCK_STATE() spin_unlock(state_lock, irq_status)
+
+/* --- Implementação das Funções de Acesso --- */
 
 uint32_t shared_state_get_pending_clicks(void) {
   LOCK_STATE();
@@ -121,25 +146,6 @@ connection_status_t shared_state_get_connection_status(void) {
 void shared_state_set_connection_status(connection_status_t status) {
   LOCK_STATE();
   state.connection_status = status;
-  UNLOCK_STATE();
-}
-
-uint32_t shared_state_get_lamport_ts(void) {
-  LOCK_STATE();
-  uint32_t val = state.current_lamport_ts;
-  UNLOCK_STATE();
-  return val;
-}
-
-void shared_state_set_lamport_ts(uint32_t ts) {
-  LOCK_STATE();
-  state.current_lamport_ts = ts;
-  UNLOCK_STATE();
-}
-
-void shared_state_increment_lamport_ts(void) {
-  LOCK_STATE();
-  state.current_lamport_ts++;
   UNLOCK_STATE();
 }
 
@@ -252,3 +258,9 @@ void shared_state_set_turbo_until_ms(uint32_t until_ms) {
   state.turbo_until_ms = until_ms;
   UNLOCK_STATE();
 }
+
+void shared_state_lock_enter(uint32_t *save) {
+  *save = spin_lock_blocking(state_lock);
+}
+
+void shared_state_lock_exit(uint32_t save) { spin_unlock(state_lock, save); }

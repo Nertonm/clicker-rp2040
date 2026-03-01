@@ -1,3 +1,13 @@
+/**
+ * @file ssd1306_i2c.c
+ * @author
+ * @date 2026-03-01
+ * @brief Implementação de baixo nível para o controlador de display SSD1306 via I2C.
+ *
+ * Contém a lógica de comunicação de barramento, algoritmos de desenho de primitivas
+ * gráficas (pontos, linhas, caracteres) e gerenciamento de buffers de renderização.
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -8,25 +18,46 @@
 #include "ssd1306_font.h"
 #include "ssd1306_i2c.h"
 
-// Calcular quanto do buffer será destinado à área de renderização
+/**
+ * @brief Calcula o comprimento do buffer para uma área de renderização específica.
+ *
+ * @param[in,out] area Ponteiro para a estrutura que define a área de destino.
+ */
 void calculate_render_area_buffer_length(struct render_area *area) {
     area->buffer_length = (area->end_column - area->start_column + 1) * (area->end_page - area->start_page + 1);
 }
 
-// Processo de escrita do i2c espera um byte de controle, seguido por dados
+/**
+ * @brief Envia um único comando de controle para o controlador SSD1306.
+ *
+ * @param[in] command Byte de comando a ser enviado.
+ */
 void ssd1306_send_command(uint8_t command) {
     uint8_t buffer[2] = {0x80, command};
     i2c_write_blocking(i2c1, ssd1306_i2c_address, buffer, 2, false);
 }
 
-// Envia uma lista de comandos ao hardware
+/**
+ * @brief Envia uma lista sequencial de comandos para o hardware.
+ *
+ * @param[in] ssd Ponteiro para o array de comandos.
+ * @param[in] number Quantidade de comandos no array.
+ */
 void ssd1306_send_command_list(uint8_t *ssd, int number) {
     for (int i = 0; i < number; i++) {
         ssd1306_send_command(ssd[i]);
     }
 }
 
-// Copia buffer de referência num novo buffer, a fim de adicionar o byte de controle desde o início
+/**
+ * @brief Transfere o buffer de pixels para a memória GDDRAM do display.
+ *
+ * Adiciona automaticamente o byte de controle 0x40 (Data stream) no início
+ * da transmissão I2C.
+ *
+ * @param[in] ssd Array de pixels.
+ * @param[in] buffer_length Tamanho do buffer em bytes.
+ */
 void ssd1306_send_buffer(uint8_t ssd[], int buffer_length) {
     uint8_t *temp_buffer = malloc(buffer_length + 1);
 
@@ -38,7 +69,6 @@ void ssd1306_send_buffer(uint8_t ssd[], int buffer_length) {
     free(temp_buffer);
 }
 
-// Cria a lista de comandos (com base nos endereços definidos em ssd1306_i2c.h) para a inicialização do display
 void ssd1306_init() {
     uint8_t commands[] = {
         ssd1306_set_display, ssd1306_set_memory_mode, 0x00,
@@ -64,7 +94,6 @@ void ssd1306_init() {
     ssd1306_send_command_list(commands, count_of(commands));
 }
 
-// Cria a lista de comandos para configurar o scrolling
 void ssd1306_scroll(bool set) {
     uint8_t commands[] = {
         ssd1306_set_horizontal_scroll | 0x00, 0x00, 0x00, 0x00, 0x03,
@@ -74,7 +103,6 @@ void ssd1306_scroll(bool set) {
     ssd1306_send_command_list(commands, count_of(commands));
 }
 
-// Atualiza uma parte do display com uma área de renderização
 void render_on_display(uint8_t *ssd, struct render_area *area) {
     uint8_t commands[] = {
         ssd1306_set_column_address, area->start_column, area->end_column,
@@ -85,7 +113,6 @@ void render_on_display(uint8_t *ssd, struct render_area *area) {
     ssd1306_send_buffer(ssd, area->buffer_length);
 }
 
-// Determina o pixel a ser aceso (no display) de acordo com a coordenada fornecida
 void ssd1306_set_pixel(uint8_t *ssd, int x, int y, bool set) {
     assert(x >= 0 && x < ssd1306_width && y >= 0 && y < ssd1306_height);
 
@@ -104,35 +131,42 @@ void ssd1306_set_pixel(uint8_t *ssd, int x, int y, bool set) {
     ssd[byte_idx] = byte;
 }
 
-// Algoritmo de Bresenham básico
+/**
+ * @brief Desenha uma linha entre dois pontos usando o Algoritmo de Bresenham.
+ */
 void ssd1306_draw_line(uint8_t *ssd, int x_0, int y_0, int x_1, int y_1, bool set) {
-    int dx = abs(x_1 - x_0); // Deslocamentos
+    int dx = abs(x_1 - x_0);
     int dy = -abs(y_1 - y_0);
-    int sx = x_0 < x_1 ? 1 : -1; // Direção de avanço
+    int sx = x_0 < x_1 ? 1 : -1;
     int sy = y_0 < y_1 ? 1 : -1;
-    int error = dx + dy; // Erro acumulado
+    int error = dx + dy;
     int error_2;
 
     while (true) {
-        ssd1306_set_pixel(ssd, x_0, y_0, set); // Acende pixel no ponto atual
+        ssd1306_set_pixel(ssd, x_0, y_0, set);
         if (x_0 == x_1 && y_0 == y_1) {
-            break; // Verifica se o ponto final foi alcançado
+            break;
         }
 
-        error_2 = 2 * error; // Ajusta o erro acumulado
+        error_2 = 2 * error;
 
         if (error_2 >= dy) {
             error += dy;
-            x_0 += sx; // Avança na direção x
+            x_0 += sx;
         }
         if (error_2 <= dx) {
             error += dx;
-            y_0 += sy; // Avança na direção y
+            y_0 += sy;
         }
     }
 }
 
-// Adquire os pixels para um caractere (de acordo com ssd1306_font.h)
+/**
+ * @brief Obtém o índice do glifo da fonte para um determinado caractere ASCII.
+ *
+ * @param[in] character Caractere ASCII.
+ * @return int Índice no array de fonte (ssd1306_font.h).
+ */
 inline int ssd1306_get_font(uint8_t character)
 {
   if (character >= 'A' && character <= 'Z') {
@@ -145,7 +179,6 @@ inline int ssd1306_get_font(uint8_t character)
     return 0;
 }
 
-// Desenha um único caractere no display
 void ssd1306_draw_char(uint8_t *ssd, int16_t x, int16_t y, uint8_t character) {
     if (x > ssd1306_width - 8 || y > ssd1306_height - 8) {
         return;
@@ -162,7 +195,6 @@ void ssd1306_draw_char(uint8_t *ssd, int16_t x, int16_t y, uint8_t character) {
     }
 }
 
-// Desenha uma string, chamando a função de desenhar caractere várias vezes
 void ssd1306_draw_string(uint8_t *ssd, int16_t x, int16_t y, char *string) {
     if (x > ssd1306_width - 8 || y > ssd1306_height - 8) {
         return;
@@ -174,14 +206,17 @@ void ssd1306_draw_string(uint8_t *ssd, int16_t x, int16_t y, char *string) {
     }
 }
 
-// Comando de configuração com base na estrutura ssd1306_t
+/**
+ * @brief Envia um comando para o display através da estrutura de controle ssd1306_t.
+ * @param[in] ssd Ponteiro para a struct de controle.
+ * @param[in] command Byte de comando.
+ */
 void ssd1306_command(ssd1306_t *ssd, uint8_t command) {
   ssd->port_buffer[1] = command;
   i2c_write_blocking(
 	ssd->i2c_port, ssd->address, ssd->port_buffer, 2, false );
 }
 
-// Função de configuração do display para o caso do bitmap
 void ssd1306_config(ssd1306_t *ssd) {
     ssd1306_command(ssd, ssd1306_set_display | 0x00);
     ssd1306_command(ssd, ssd1306_set_memory_mode);
@@ -210,7 +245,6 @@ void ssd1306_config(ssd1306_t *ssd) {
     ssd1306_command(ssd, ssd1306_set_display | 0x01);
 }
 
-// Inicializa o display para o caso de exibição de bitmap
 void ssd1306_init_bm(ssd1306_t *ssd, uint8_t width, uint8_t height, bool external_vcc, uint8_t address, i2c_inst_t *i2c) {
     ssd->width = width;
     ssd->height = height;
@@ -223,7 +257,6 @@ void ssd1306_init_bm(ssd1306_t *ssd, uint8_t width, uint8_t height, bool externa
     ssd->port_buffer[0] = 0x80;
 }
 
-// Envia os dados ao display
 void ssd1306_send_data(ssd1306_t *ssd) {
     ssd1306_command(ssd, ssd1306_set_column_address);
     ssd1306_command(ssd, 0);
@@ -235,7 +268,6 @@ void ssd1306_send_data(ssd1306_t *ssd) {
     ssd->i2c_port, ssd->address, ssd->ram_buffer, ssd->bufsize, false );
 }
 
-// Desenha o bitmap (a ser fornecido em display_oled.c) no display
 void ssd1306_draw_bitmap(ssd1306_t *ssd, const uint8_t *bitmap) {
     for (int i = 0; i < ssd->bufsize - 1; i++) {
         ssd->ram_buffer[i + 1] = bitmap[i];

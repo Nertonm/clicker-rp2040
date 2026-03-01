@@ -1,3 +1,14 @@
+/**
+ * @file task_display.c
+ * @author
+ * @date 2026-03-01
+ * @brief Implementação da tarefa de atualização da interface visual.
+ *
+ * Gerencia a renderização periódica do display OLED e o controle de cores
+ * da matriz de LEDs WS2812, processando feedbacks visuais para turbo,
+ * cliques e marcos de pontuação.
+ */
+
 #include "task_display.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -9,6 +20,14 @@
 #include "pico/stdlib.h"
 #include <stdio.h>
 
+/**
+ * @brief Calcula cores do arco-íris para efeitos visuais (roda de cores).
+ *
+ * @param[in] pos Posição na roda de cores (0-255).
+ * @param[out] r Componente Vermelho.
+ * @param[out] g Componente Verde.
+ * @param[out] b Componente Azul.
+ */
 static void wheel_color(uint8_t pos, uint8_t *r, uint8_t *g, uint8_t *b) {
   uint8_t p = 255 - pos;
   if (p < 85) {
@@ -28,6 +47,12 @@ static void wheel_color(uint8_t pos, uint8_t *r, uint8_t *g, uint8_t *b) {
   }
 }
 
+/**
+ * @brief Converte o status da conexão para uma string legível.
+ *
+ * @param[in] status Estado da conexão RPC/WiFi.
+ * @return const char* String correspondente ao estado.
+ */
 static const char *status_to_text(connection_status_t status) {
   switch (status) {
   case STATUS_ONLINE:
@@ -43,6 +68,9 @@ static const char *status_to_text(connection_status_t status) {
   }
 }
 
+/**
+ * @brief Loop principal da tarefa de display.
+ */
 void task_display(void *param) {
   (void)param;
 
@@ -53,6 +81,7 @@ void task_display(void *param) {
   uint8_t milestone_glow_ticks = 0;
 
   while (1) {
+    /* Leitura atômica do estado compartilhado */
     uint32_t local = shared_state_get_local_score();
     uint32_t global = shared_state_get_global_score();
     connection_status_t status = shared_state_get_connection_status();
@@ -60,6 +89,7 @@ void task_display(void *param) {
     bool milestone = shared_state_take_milestone_triggered();
     bool turbo_active = shared_state_get_turbo_active();
 
+    /* Gerenciamento do tempo de expiração do modo turbo */
     if (turbo_active) {
       uint32_t now_ms = to_ms_since_boot(get_absolute_time());
       uint32_t until_ms = shared_state_get_turbo_until_ms();
@@ -69,8 +99,10 @@ void task_display(void *param) {
       }
     }
 
+    /* Feedback visual de Marco (Milestone) atingido */
     if (milestone) {
       milestone_glow_ticks = MILESTONE_GLOW_TICKS;
+      /* Efeito de flash imediato nos LEDs */
       for (int i = 0; i < 2; i++) {
         led_matrix_set_all(24, 16, 0);
         vTaskDelay(pdMS_TO_TICKS(80));
@@ -79,6 +111,7 @@ void task_display(void *param) {
       }
     }
 
+    /* Preparação das linhas de texto para o OLED */
     snprintf(row1, sizeof(row1), "Node %d: %lu", NODE_ID, (unsigned long)local);
     snprintf(row2, sizeof(row2), "Global: %lu", (unsigned long)global);
     if (turbo_active) {
@@ -87,6 +120,7 @@ void task_display(void *param) {
       snprintf(row3, sizeof(row3), "%s", status_to_text(status));
     }
 
+    /* Atualização do Display SSD1306 */
     display_clear();
     display_text(0, 0, "Cookie Clicker");
     display_text(2, 0, row1);
@@ -94,23 +128,30 @@ void task_display(void *param) {
     display_text(6, 0, row3);
     display_show();
 
+    /* Atualização da Matriz de LEDs WS2812 (Dígito menos significativo do score local) */
     uint8_t digit = (uint8_t)(local % 10u);
+    
     if (milestone_glow_ticks > 0) {
+      // Brilho dourado para marcos
       led_matrix_draw_number(digit, 20, 14, 0);
       milestone_glow_ticks--;
     } else if (turbo_active) {
+      // Efeito arco-íris para modo turbo
       uint8_t r, g, b;
       wheel_color((uint8_t)(rainbow_phase + (digit * 12u)), &r, &g, &b);
       led_matrix_draw_number(digit, (uint8_t)(r / 18 + 2),
                              (uint8_t)(g / 18 + 2), (uint8_t)(b / 18 + 2));
       rainbow_phase += 7;
     } else {
+      // Cor cinza padrão
       led_matrix_draw_number(digit, 8, 8, 8);
     }
 
+    /* Feedback visual de clique (flash azul central) */
     if (led_flash) {
       led_set(12, 0, 0, 15);
       vTaskDelay(pdMS_TO_TICKS(50));
+      // Restaura o número após o flash
       if (milestone_glow_ticks > 0) {
         led_matrix_draw_number(digit, 20, 14, 0);
       } else if (turbo_active) {

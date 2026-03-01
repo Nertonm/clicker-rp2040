@@ -1,4 +1,22 @@
+/**
+ * @file ssd1306_font.h
+ * @brief Tabela de fontes para o display OLED SSD1306.
+ *
+ * Contém os mapas de bits (glifos) de 8x8 pixels para caracteres ASCII
+ * básicos (letras maiúsculas e números).
+ */
 
+#ifndef SSD1306_FONT_H
+#define SSD1306_FONT_H
+
+#include <stdint.h>
+
+/**
+ * @brief Array contendo os mapas de bits da fonte.
+ *
+ * Cada caractere é representado por 8 bytes, onde cada byte corresponde
+ * a uma coluna vertical de 8 pixels.
+ */
 static uint8_t font[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Nothing
     0x78, 0x14, 0x12, 0x11, 0x12, 0x14, 0x78, 0x00, // A
@@ -38,3 +56,5 @@ static uint8_t font[] = {
     0x36, 0x49, 0x49, 0x49, 0x49, 0x49, 0x36, 0x00, // 8
     0x06, 0x09, 0x09, 0x09, 0x09, 0x09, 0x7f, 0x00, // 9
 };
+
+#endif /* SSD1306_FONT_H */

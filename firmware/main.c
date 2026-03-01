@@ -1,3 +1,15 @@
+/**
+ * @file main.c
+ * @brief Ponto de entrada principal do firmware Clicker RP2040.
+ *
+ * Este arquivo contém a função main(), responsável pela inicialização básica
+ * do hardware (stdio, GPIOs, barramentos I2C), criação das tarefas do
+ * FreeRTOS e início do escalonador do kernel.
+ *
+ * @author
+ * @date 2026-03-01
+ */
+
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -20,7 +32,19 @@
 #include "tests/stress_test.h"
 #endif
 
+/**
+ * @brief Função principal (Ponto de entrada).
+ *
+ * Realiza a orquestração do boot:
+ * 1. Inicializa subsistemas de hardware.
+ * 2. Prepara o estado compartilhado e filas.
+ * 3. Cria as tarefas operacionais.
+ * 4. Inicia o escalonador do FreeRTOS.
+ *
+ * @return int Retorna zero apenas em caso de erro crítico (o scheduler nunca deve retornar).
+ */
 int main(void) {
+  /* Inicialização da biblioteca padrão e periféricos básicos */
   stdio_init_all();
   setvbuf(stdout, NULL, _IONBF, 0);
   setvbuf(stderr, NULL, _IONBF, 0);
@@ -29,6 +53,7 @@ int main(void) {
   printf("\n[BOOT] ===== Clicker RP2040 - Sprint 2 =====\n");
   printf("[BOOT] FreeRTOS version: %s\n", tskKERNEL_VERSION_NUMBER);
 
+  /* Inicialização de Middlewares e Drivers */
   shared_state_init();
   lamport_init();
   button_handler_init();
@@ -37,16 +62,22 @@ int main(void) {
   buzzer_init();
   app_queues_init();
 
+  /* Criação das Tarefas do FreeRTOS */
   BaseType_t ok;
+
+  /* Tarefa de processamento de botões (Alta Prioridade) */
   ok = xTaskCreate(task_buttons, "buttons", 512, NULL, 3, NULL);
   configASSERT(ok == pdPASS);
 
+  /* Tarefa de rede RPC (Prioridade Média) */
   ok = xTaskCreate(task_rpc, "rpc", 4096, NULL, 2, NULL);
   configASSERT(ok == pdPASS);
 
+  /* Tarefa de atualização da interface visual (Baixa Prioridade) */
   ok = xTaskCreate(task_display, "display", 1024, NULL, 1, NULL);
   configASSERT(ok == pdPASS);
 
+  /* Tarefa de monitoramento do sistema (Baixa Prioridade) */
   ok = xTaskCreate(task_monitor, "monitor", 768, NULL, 1, NULL);
   configASSERT(ok == pdPASS);
 
@@ -57,6 +88,7 @@ int main(void) {
   printf("[BOOT] Scheduler iniciado\n");
   vTaskStartScheduler();
 
+  /* Se chegou aqui, houve falta de memória ou erro crítico no kernel */
   printf("[BOOT] ERRO FATAL: scheduler retornou\n");
   while (1) {
     tight_loop_contents();

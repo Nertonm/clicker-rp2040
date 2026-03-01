@@ -1,44 +1,47 @@
 #include "lamport.h"
-#include "pico/critical_section.h"
+#include "middleware/shared_state.h"
 #include <stdio.h>
 
-// Estado interno
-static int lamport_clock = 0;
-static critical_section_t lamport_lock;
+static uint32_t lamport_L = 0;
 
 void lamport_init(void) {
-  critical_section_init(&lamport_lock);
-  lamport_clock = 0;
+  /* shared_state_init() deve ter sido chamado antes */
+  uint32_t save;
+  shared_state_lock_enter(&save);
+  lamport_L = 0;
+  shared_state_lock_exit(save);
   printf("[LAMPORT] Inicializado com ts=0\n");
 }
 
-int lamport_tick(void) {
-  critical_section_enter_blocking(&lamport_lock);
-  lamport_clock++;
-  int current = lamport_clock;
-  critical_section_exit(&lamport_lock);
+uint32_t lamport_tick(void) {
+  uint32_t save;
+  shared_state_lock_enter(&save);
+  lamport_L += 1u;
+  uint32_t current = lamport_L;
+  shared_state_lock_exit(save);
 
-  printf("[LAMPORT] Tick: ts=%d\n", current);
+  printf("[LAMPORT] Tick: ts=%lu\n", (unsigned long)current);
   return current;
 }
 
-void lamport_update(int received_ts) {
-  critical_section_enter_blocking(&lamport_lock);
+void lamport_update(uint32_t received_ts) {
+  uint32_t save;
+  shared_state_lock_enter(&save);
+  if (received_ts > lamport_L) {
+    lamport_L = received_ts;
+  }
+  lamport_L += 1u;
+  uint32_t current = lamport_L;
+  shared_state_lock_exit(save);
 
-  // Servidor é autoritativo - ele já calculou max(local, received) + 1
-  // Cliente apenas aceita esse valor sincronizado
-  lamport_clock = received_ts;
-
-  int current = lamport_clock;
-  critical_section_exit(&lamport_lock);
-
-  printf("[LAMPORT] Atualizado para ts=%d (servidor)\n", current);
+  printf("[LAMPORT] Atualizado para ts=%lu (recebido=%lu)\n",
+         (unsigned long)current, (unsigned long)received_ts);
 }
 
-int lamport_get(void) {
-  critical_section_enter_blocking(&lamport_lock);
-  int current = lamport_clock;
-  critical_section_exit(&lamport_lock);
-
+uint32_t lamport_get_current(void) {
+  uint32_t save;
+  shared_state_lock_enter(&save);
+  uint32_t current = lamport_L;
+  shared_state_lock_exit(save);
   return current;
 }

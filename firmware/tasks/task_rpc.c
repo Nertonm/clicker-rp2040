@@ -1,3 +1,14 @@
+/**
+ * @file task_rpc.c
+ * @brief Implementação da tarefa de comunicação RPC e gerenciamento de rede.
+ *
+ * Esta tarefa orquestra a conexão WiFi, a descoberta do servidor e a
+ * sincronização contínua de cliques e pontuações com o backend central.
+ *
+ * @author
+ * @date 2026-03-01
+ */
+
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -13,20 +24,35 @@
 #include "task_rpc.h"
 #include <stdio.h>
 
+/**
+ * @brief Aplica o efeito visual de Turbo localmente.
+ *
+ * @param[in] duration_ms Duração do efeito em milissegundos.
+ */
 static void apply_local_turbo(uint32_t duration_ms) {
   uint32_t now = to_ms_since_boot(get_absolute_time());
   shared_state_set_turbo_until_ms(now + duration_ms);
   shared_state_set_turbo_active(true);
 }
 
+/**
+ * @brief Atualiza os scores globais e locais no estado compartilhado.
+ *
+ * @param[in] result Ponteiro para o resultado da chamada RPC.
+ */
 static void apply_score_update(const RpcClickResult *result) {
-  uint32_t local_before = shared_state_get_local_score();
   shared_state_set_local_score((uint32_t)result->local_score);
   shared_state_set_global_score((uint32_t)result->global_score);
   shared_state_set_connection_status(STATUS_ONLINE);
   shared_state_set_server_error_active(false);
 }
 
+/**
+ * @brief Realiza a busca do servidor na rede e configura o cliente RPC.
+ *
+ * Tenta descobrir o servidor via UDP Broadcast. Caso falhe, utiliza
+ * o endereço IP de fallback definido nas configurações.
+ */
 static void setup_network_target(void) {
   ip_addr_t discovered_ip;
   uint16_t discovered_port = 0;
@@ -45,6 +71,11 @@ static void setup_network_target(void) {
   }
 }
 
+/**
+ * @brief Inicializa e conecta ao ponto de acesso WiFi.
+ *
+ * @return bool Verdadeiro se a conexão foi estabelecida com sucesso.
+ */
 static bool setup_wifi(void) {
   cyw43_arch_enable_sta_mode();
 
@@ -67,6 +98,9 @@ static bool setup_wifi(void) {
   return true;
 }
 
+/**
+ * @brief Loop principal da tarefa de rede RPC.
+ */
 void task_rpc(void *param) {
   (void)param;
 
@@ -80,9 +114,11 @@ void task_rpc(void *param) {
     }
   }
 
+  /* Tenta conectar ao WiFi */
   bool wifi_ok = setup_wifi();
   if (!wifi_ok) {
     shared_state_set_connection_status(STATUS_OFFLINE);
+    /* Loop infinito em modo offline se WiFi falhar */
     while (1) {
       if (shared_state_take_turbo_activation_requested()) {
         apply_local_turbo(TURBO_DURATION_MS);
@@ -107,6 +143,7 @@ void task_rpc(void *param) {
   TickType_t last_register_attempt = 0;
 
   while (1) {
+    /* Processamento de Power-up (Turbo) */
     if (shared_state_take_turbo_activation_requested()) {
       uint32_t turbo_ms = TURBO_DURATION_MS;
       if (registered) {
@@ -119,6 +156,7 @@ void task_rpc(void *param) {
       printf("[TURBO] Ativado por %lu ms\n", (unsigned long)turbo_ms);
     }
 
+    /* Lógica de Registro Inicial e Reconexão */
     if (!registered) {
       TickType_t now_ticks = xTaskGetTickCount();
       if ((last_register_attempt == 0) ||
@@ -141,17 +179,19 @@ void task_rpc(void *param) {
       continue;
     }
 
+    /* Processamento da Fila de Cliques Pendentes */
     click_msg_t msg;
     if (xQueueReceive(queue_clicks, &msg, pdMS_TO_TICKS(RPC_POLL_PERIOD_MS)) ==
         pdPASS) {
       do {
-        int lamport_ts = lamport_tick();
+        uint32_t lamport_ts = lamport_tick();
         RpcClickResult click_res = rpc_add_clicks((int)msg.clicks, lamport_ts);
 
         if (click_res.success) {
-          lamport_update(click_res.lamport_ts);
+          lamport_update((uint32_t)click_res.lamport_ts);
           apply_score_update(&click_res);
         } else {
+          /* Tratamento de Erros do Servidor */
           if (click_res.error_code == RPC_RATE_EXCEEDED) {
             uint32_t rejected =
                 msg.clicks - (uint32_t)click_res.accepted_clicks;
@@ -161,7 +201,7 @@ void task_rpc(void *param) {
           } else {
             shared_state_restore_clicks(msg.clicks);
             if (click_res.error_code == RPC_LAMPORT_VIOLATION) {
-              lamport_update(click_res.lamport_ts);
+              lamport_update((uint32_t)click_res.lamport_ts);
             } else {
               shared_state_set_connection_status(STATUS_OFFLINE);
               registered = false;
@@ -172,6 +212,7 @@ void task_rpc(void *param) {
       } while (xQueueReceive(queue_clicks, &msg, 0) == pdPASS);
     }
 
+    /* Atualização Periódica do Placar Global */
     TickType_t now = xTaskGetTickCount();
     if ((now - last_scores_refresh) >= pdMS_TO_TICKS(SCORES_REFRESH_MS)) {
       last_scores_refresh = now;

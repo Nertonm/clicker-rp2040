@@ -1,3 +1,14 @@
+/**
+ * @file rpc_client.c
+ * @brief Implementação do cliente JSON-RPC sobre TCP.
+ *
+ * Gerencia a comunicação de rede, incluindo sockets LWIP, timeouts,
+ * retentativas de envio e parsing manual de respostas JSON.
+ *
+ * @author
+ * @date 2026-03-01
+ */
+
 #include "rpc_client.h"
 
 #include <errno.h>
@@ -8,24 +19,34 @@
 #include "lwip/sockets.h"
 #include "task.h"
 
+/** @name Configurações de Fallback e Timeout */
+/** @{ */
 #ifndef FALLBACK_SERVER_IP
-#define FALLBACK_SERVER_IP "192.168.0.10"
+#define FALLBACK_SERVER_IP                                                     \
+  "192.168.0.10" /**< IP padrão do servidor caso discovery falhe. */
 #endif
-#define FALLBACK_SERVER_PORT 8765
-#define RECV_TIMEOUT_MS 2000
-#define SEND_TIMEOUT_MS 2000
-#define RPC_BUFFER_SIZE 1024
+#define FALLBACK_SERVER_PORT 8765 /**< Porta padrão do servidor RPC. */
+#define RECV_TIMEOUT_MS 2000 /**< Timeout para recebimento de dados (ms). */
+#define SEND_TIMEOUT_MS 2000 /**< Timeout para envio de dados (ms). */
+#define RPC_BUFFER_SIZE 1024 /**< Tamanho do buffer de recepção. */
+/** @} */
 
+/**
+ * @brief Estrutura interna de estado do cliente RPC.
+ */
 typedef struct {
-  int sock;
-  uint8_t node_id;
-  bool initialized;
+  int sock;         /**< Descritor do socket TCP (-1 se fechado). */
+  uint8_t node_id;  /**< Identificador deste nó na rede. */
+  bool initialized; /**< Flag indicando se o módulo foi inicializado. */
 
-  char server_ip[32];
-  uint16_t server_port;
-  bool using_fallback;
+  char server_ip[32];   /**< Endereço IP do servidor alvo. */
+  uint16_t server_port; /**< Porta TCP do servidor alvo. */
+  bool using_fallback;  /**< Flag indicando uso de configurações de fallback. */
 } RpcState;
 
+/**
+ * @brief Instância única do estado do cliente RPC.
+ */
 static RpcState rpc_state = {
     .sock = -1,
     .node_id = 0,
@@ -35,6 +56,9 @@ static RpcState rpc_state = {
     .using_fallback = true,
 };
 
+/**
+ * @brief Fecha o socket TCP e limpa o descritor no estado global.
+ */
 static void disconnect_socket(void) {
   if (rpc_state.sock >= 0) {
     lwip_close(rpc_state.sock);
@@ -43,6 +67,14 @@ static void disconnect_socket(void) {
   }
 }
 
+/**
+ * @brief Estabelece conexão TCP com o servidor configurado.
+ *
+ * Configura timeouts de SO_RCVTIMEO e SO_SNDTIMEO para evitar bloqueios
+ * infinitos.
+ *
+ * @return bool Verdadeiro se a conexão foi estabelecida ou já existia.
+ */
 static bool connect_to_server(void) {
   if (rpc_state.sock >= 0) {
     return true;
@@ -86,6 +118,14 @@ static bool connect_to_server(void) {
   return true;
 }
 
+/**
+ * @brief Garante o envio de todo o buffer através do socket.
+ *
+ * @param[in] sock Descritor do socket.
+ * @param[in] data Ponteiro para os dados.
+ * @param[in] len Tamanho total a enviar.
+ * @return bool Verdadeiro se todo o conteúdo foi enviado.
+ */
 static bool send_all(int sock, const char *data, size_t len) {
   size_t total_sent = 0;
   while (total_sent < len) {
@@ -98,6 +138,14 @@ static bool send_all(int sock, const char *data, size_t len) {
   return true;
 }
 
+/**
+ * @brief Envia uma requisição e aguarda a resposta correspondente.
+ *
+ * @param[in] request String contendo o JSON de requisição.
+ * @param[out] response Buffer para armazenar a resposta recebida.
+ * @param[in] response_size Tamanho máximo do buffer de resposta.
+ * @return bool Verdadeiro se a transação foi concluída com sucesso.
+ */
 static bool send_and_receive(const char *request, char *response,
                              size_t response_size) {
   if (rpc_state.sock < 0 || response_size == 0) {
@@ -122,10 +170,18 @@ static bool send_and_receive(const char *request, char *response,
   return true;
 }
 
-// Apenas [0] e [1] são usados (attempt < 3); [2] reservado para futura 4ª
-// tentativa
+/** @brief Tabela de backoff exponencial para retentativas (ms). */
 static const uint32_t BACKOFF_MS[] = {100, 200, 400};
 
+/**
+ * @brief Realiza uma única chamada RPC (Conecta -> Envia -> Recebe ->
+ * Desconecta).
+ *
+ * @param[in] request Requisição JSON.
+ * @param[out] response Buffer de resposta.
+ * @param[in] response_size Tamanho do buffer.
+ * @return RpcError Código de erro da operação.
+ */
 static RpcError rpc_call_once(const char *request, char *response,
                               size_t response_size) {
   disconnect_socket();
@@ -142,6 +198,17 @@ static RpcError rpc_call_once(const char *request, char *response,
   return RPC_OK;
 }
 
+/**
+ * @brief Orquestrador de chamadas RPC com lógica de re-tentativa automática.
+ *
+ * Tenta realizar a chamada até 3 vezes em caso de falha de rede.
+ *
+ * @param[in] request Requisição JSON.
+ * @param[out] response Buffer de resposta.
+ * @param[in] response_size Tamanho do buffer.
+ * @param[out] out_err Ponteiro opcional para erro detalhado.
+ * @return bool Verdadeiro se alguma das tentativas teve sucesso.
+ */
 static bool rpc_call_with_retry(const char *request, char *response,
                                 size_t response_size, RpcError *out_err) {
   RpcError last_err = RPC_DISCONNECTED;
@@ -164,6 +231,8 @@ static bool rpc_call_with_retry(const char *request, char *response,
   return false;
 }
 
+/* --- Funções de Construção de JSON (Manuais) --- */
+
 static void build_register_node_json(char *buffer, size_t size,
                                      uint8_t node_id) {
   snprintf(buffer, size,
@@ -173,12 +242,12 @@ static void build_register_node_json(char *buffer, size_t size,
 }
 
 static void build_add_clicks_json(char *buffer, size_t size, int clicks,
-                                  int lamport_ts) {
+                                  uint32_t lamport_ts) {
   snprintf(
       buffer, size,
       "{\"jsonrpc\":\"2.0\",\"method\":\"add_clicks\","
-      "\"params\":{\"node_id\":%d,\"clicks\":%d,\"lamport_ts\":%d},\"id\":1}\n",
-      rpc_state.node_id, clicks, lamport_ts);
+      "\"params\":{\"node_id\":%d,\"clicks\":%d,\"lamport_ts\":%u},\"id\":1}\n",
+      rpc_state.node_id, clicks, (unsigned int)lamport_ts);
 }
 
 static void build_activate_powerup_json(char *buffer, size_t size) {
@@ -195,18 +264,35 @@ static void build_get_scores_json(char *buffer, size_t size) {
 }
 
 static void build_sync_offline_json(char *buffer, size_t size,
-                                    int accumulated_clicks, int lamport_ts) {
+                                    int accumulated_clicks,
+                                    uint32_t lamport_ts) {
   snprintf(buffer, size,
            "{\"jsonrpc\":\"2.0\",\"method\":\"sync_offline\","
            "\"params\":{\"node_id\":%d,\"accumulated_clicks\":%d,\"lamport_"
-           "ts\":%d},\"id\":5}\n",
-           rpc_state.node_id, accumulated_clicks, lamport_ts);
+           "ts\":%u},\"id\":5}\n",
+           rpc_state.node_id, accumulated_clicks, (unsigned int)lamport_ts);
 }
 
+/* --- Funções de Parsing de JSON (Simplificadas) --- */
+
+/**
+ * @brief Verifica se uma substring existe no JSON recebido.
+ * @param json String JSON original.
+ * @param substring Termo de busca.
+ * @return bool Verdadeiro se encontrado.
+ */
 static bool json_contains(const char *json, const char *substring) {
   return strstr(json, substring) != NULL;
 }
 
+/**
+ * @brief Extrai um valor inteiro de um campo JSON específico.
+ *
+ * @param[in] json String JSON original.
+ * @param[in] key Nome da chave (ex: "lamport_ts").
+ * @param[out] out_value Ponteiro para armazenar o valor extraído.
+ * @return bool Verdadeiro se a chave foi encontrada e o valor parseado.
+ */
 static bool json_get_int(const char *json, const char *key, int *out_value) {
   char search_pattern[64];
   snprintf(search_pattern, sizeof(search_pattern), "\"%s\":", key);
@@ -259,7 +345,9 @@ static RpcClickResult parse_add_clicks_response(const char *json) {
 
     if (json_contains(json, "LAMPORT_VIOLATION")) {
       result.error_code = RPC_LAMPORT_VIOLATION;
-      json_get_int(json, "lamport_ts", &result.lamport_ts);
+      int temp_lamport;
+      json_get_int(json, "lamport_ts", &temp_lamport);
+      result.lamport_ts = (uint32_t)temp_lamport;
     } else if (json_contains(json, "RATE_EXCEEDED")) {
       result.error_code = RPC_RATE_EXCEEDED;
       json_get_int(json, "accepted_partial", &result.accepted_clicks);
@@ -272,9 +360,11 @@ static RpcClickResult parse_add_clicks_response(const char *json) {
   result.success = true;
   result.error_code = RPC_OK;
 
+  int temp_lamport;
   json_get_int(json, "global_score", &result.global_score);
   json_get_int(json, "node_score", &result.local_score);
-  json_get_int(json, "lamport_ts", &result.lamport_ts);
+  json_get_int(json, "lamport_ts", &temp_lamport);
+  result.lamport_ts = (uint32_t)temp_lamport;
   json_get_int(json, "clicks", &result.accepted_clicks);
 
   result.milestone_triggered = json_contains(json, "\"milestone\":true");
@@ -340,6 +430,8 @@ static RpcScoreResult parse_get_scores_response(const char *json) {
   return result;
 }
 
+/* --- Implementação da API Pública --- */
+
 void rpc_client_set_server(const char *ip_str, uint16_t port) {
   if (!ip_str || ip_str[0] == '\0') {
     printf("[RPC] ERRO: IP string inválido\n");
@@ -396,7 +488,7 @@ RpcSimpleResult rpc_register_node(uint8_t node_id) {
   return parse_register_node_response(response);
 }
 
-RpcClickResult rpc_add_clicks(int clicks, int lamport_ts) {
+RpcClickResult rpc_add_clicks(int clicks, uint32_t lamport_ts) {
   RpcClickResult result = {0};
 
   char request[256];
@@ -452,7 +544,7 @@ RpcScoreResult rpc_get_scores(void) {
   return parse_get_scores_response(response);
 }
 
-RpcClickResult rpc_sync_offline(int accumulated_clicks, int lamport_ts) {
+RpcClickResult rpc_sync_offline(int accumulated_clicks, uint32_t lamport_ts) {
   RpcClickResult result = {0};
 
   char request[256];

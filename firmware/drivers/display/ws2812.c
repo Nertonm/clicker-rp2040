@@ -1,3 +1,15 @@
+/**
+ * @file ws2812.c
+ * @brief Implementação do driver para LEDs WS2812 via PIO.
+ *
+ * Gerencia a temporização precisa para controle de LEDs NeoPixel,
+ * incluindo mapeamento de coordenadas (x, y) para a topologia de
+ * fiação em serpentina da placa BitDogLab.
+ *
+ * @author
+ * @date 2026-03-01
+ */
+
 #include "ws2812.h"
 #include "hardware/clocks.h"
 #include "hardware/pio.h"
@@ -6,14 +18,21 @@
 #include "ws2812.pio.h"
 #include <stdio.h>
 
+/** @brief Instância do periférico PIO utilizada. */
 static PIO pio_inst;
+
+/** @brief Índice da máquina de estado (State Machine) do PIO. */
 static uint sm_inst;
 
-// Estrutura de pixel seguindo o padrão BitDogLab (GRB)
+/**
+ * @brief Estrutura de pixel no padrão GRB (Green-Red-Blue).
+ * @note Este é o padrão exigido pela maioria dos módulos WS2812.
+ */
 typedef struct {
   uint8_t G, R, B;
 } pixel_t;
 
+/** @brief Buffer de RAM contendo as cores de todos os LEDs da matriz. */
 static pixel_t led_buffer[WS2812_NUM_LEDS];
 
 void led_matrix_init(void) {
@@ -21,13 +40,13 @@ void led_matrix_init(void) {
   printf("[WS2812] Inicializando modo BitDogLab (GPIO %d)...\n", WS2812_PIN);
   fflush(stdout);
 
-  // Inicialização do pino
+  // Inicialização do pino GPIO
   gpio_init(WS2812_PIN);
   gpio_set_dir(WS2812_PIN, GPIO_OUT);
   gpio_put(WS2812_PIN, 0);
-  sleep_us(300); // Reset pulse inicial
+  sleep_us(300); // Pulso de reset inicial para os LEDs
 
-  // Tenta carregar o programa no PIO0 primeiro
+  // Tenta carregar o programa no PIO0 ou PIO1 conforme disponibilidade
   pio_inst = pio0;
   if (!pio_can_add_program(pio_inst, &ws2812_program)) {
     pio_inst = pio1;
@@ -36,6 +55,7 @@ void led_matrix_init(void) {
   offset = pio_add_program(pio_inst, &ws2812_program);
   sm_inst = pio_claim_unused_sm(pio_inst, true);
 
+  // Configura a máquina de estado com clock de 800kHz
   ws2812_program_init(pio_inst, sm_inst, offset, WS2812_PIN, 800000.f, false);
 
   printf("[WS2812] Pronto: PIO %d, SM %d\n", pio_get_index(pio_inst), sm_inst);
@@ -44,17 +64,21 @@ void led_matrix_init(void) {
   led_clear_all();
 }
 
+/**
+ * @brief Envia o conteúdo do buffer de RAM para o hardware via PIO.
+ *
+ * Realiza o empacotamento dos 24 bits (GRB) em uma palavra de 32 bits
+ * antes de enviar para a FIFO do PIO.
+ */
 static void np_write(void) {
   for (uint i = 0; i < WS2812_NUM_LEDS; i++) {
-    // Envia 24 bits (G, R, B) empacotados no topo do registrador de 32 bits
-    // MSB first (shift_right=false no PIO), portanto os dados ocupam os bits 31
-    // downto 8.
+    // Bits 31-24: G, Bits 23-16: R, Bits 15-8: B
     uint32_t color = ((uint32_t)led_buffer[i].G << 24) |
                      ((uint32_t)led_buffer[i].R << 16) |
                      ((uint32_t)led_buffer[i].B << 8);
     pio_sm_put_blocking(pio_inst, sm_inst, color);
   }
-  sleep_us(100); // Latch pulse
+  sleep_us(100); // Pulso de Latch (fim de quadro)
 }
 
 void led_set(int index, uint8_t r, uint8_t g, uint8_t b) {
@@ -77,24 +101,29 @@ void led_clear_all(void) {
   np_write();
 }
 
-// Função para converter coordenadas (x, y) para o índice do LED no BitDogLab
-// x: 0 (esquerda) a 4 (direita)
-// y: 0 (baixo) a 4 (cima)
+/**
+ * @brief Converte coordenadas cartesianas (x, y) para o índice linear do buffer.
+ *
+ * Implementa o mapeamento em "serpentina" específico da matriz BitDogLab:
+ * - Linhas pares (0, 2, 4): Direita para Esquerda.
+ * - Linhas ímpares (1, 3): Esquerda para Direita.
+ *
+ * @param[in] x Posição horizontal (0 esquerda a 4 direita).
+ * @param[in] y Posição vertical (0 baixo a 4 cima).
+ * @return int Índice correspondente no array led_buffer.
+ */
 static int get_index(int x, int y) {
-  // No BitDogLab, a matriz começa no canto inferior direito
-  // e segue em serpentina.
   if (y % 2 == 0) {
-    // Linhas pares: da direita para a esquerda (y=0, 2, 4)
     return y * 5 + (4 - x);
   } else {
-    // Linhas ímpares: da esquerda para a direita (y=1, 3)
     return y * 5 + x;
   }
 }
 
-// Bitmaps corrigidos para matriz 5x5 (25 bits)
-// Ordem dos bits: Bit 24 (Topo-Esquerda, x=0, y=4) até Bit 0 (Base-Direita,
-// x=4, y=0)
+/** 
+ * @brief Bitmaps pré-definidos para representação de números na matriz 5x5.
+ * @note Cada bit representa um LED (bit 0 = (4,0), bit 24 = (0,4)).
+ */
 static const uint32_t final_bitmaps[10] = {
     0x0E8C62E, // 0
     0x046108E, // 1
@@ -114,17 +143,16 @@ void led_matrix_draw_number(uint8_t num, uint8_t r, uint8_t g, uint8_t b) {
 
   uint32_t bitmap = final_bitmaps[num];
 
-  // Limpa o buffer antes de desenhar
+  // Limpa o buffer antes de aplicar o novo número
   for (int i = 0; i < 25; i++) {
     led_buffer[i].R = 0;
     led_buffer[i].G = 0;
     led_buffer[i].B = 0;
   }
 
-  // Mapeia o bitmap de 25 bits (y=4..0, x=0..4) para os LEDs serpentina
+  // Mapeia os bits do bitmap para o buffer seguindo a lógica da matriz
   for (int y = 0; y < 5; y++) {
     for (int x = 0; x < 5; x++) {
-      // Bit pos no bitmap: bit 24 é x=0, y=4. bit 0 é x=4, y=0.
       int bit_pos = y * 5 + (4 - x);
       if (bitmap & (1 << bit_pos)) {
         int index = get_index(x, y);

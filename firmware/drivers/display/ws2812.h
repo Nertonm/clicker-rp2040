@@ -1,3 +1,14 @@
+/**
+ * @file ws2812.h
+ * @brief Driver de controle para LEDs endereçáveis WS2812 (NeoPixel).
+ *
+ * Utiliza o periférico PIO do RP2040 para gerar o timing preciso
+ * exigido pelo protocolo de comunicação de um único fio dos LEDs.
+ *
+ * @author
+ * @date 2026-03-01
+ */
+
 #ifndef WS2812_H
 #define WS2812_H
 
@@ -6,17 +17,19 @@
 
 /**
  * @brief Inicializa a matriz de LEDs WS2812 via PIO.
- * Usa as definições de WS2812_PIN e WS2812_NUM_LEDS de hardware_config.h.
+ *
+ * Configura a máquina de estado do PIO e os pinos GPIO conforme definido
+ * em hardware_config.h.
  */
 void led_matrix_init(void);
 
 /**
  * @brief Define a cor de um LED específico na matriz.
  *
- * @param index Índice do LED (0 a WS2812_NUM_LEDS - 1)
- * @param r Componente Vermelho (0-255)
- * @param g Componente Verde (0-255)
- * @param b Componente Azul (0-255)
+ * @param[in] index Índice do LED na cadeia (0 a WS2812_NUM_LEDS - 1).
+ * @param[in] r Intensidade do componente Vermelho (0-255).
+ * @param[in] g Intensidade do componente Verde (0-255).
+ * @param[in] b Intensidade do componente Azul (0-255).
  */
 void led_set(int index, uint8_t r, uint8_t g, uint8_t b);
 
@@ -26,21 +39,21 @@ void led_set(int index, uint8_t r, uint8_t g, uint8_t b);
 void led_clear_all(void);
 
 /**
- * @brief Desenha um número de 0 a 9 na matriz 5x5.
+ * @brief Desenha a representação visual de um dígito na matriz 5x5.
  *
- * @param num O número a ser desenhado (0 a 9)
- * @param r Componente Vermelho
- * @param g Componente Verde
- * @param b Componente Azul
+ * @param[in] num O dígito a ser exibido (0 a 9).
+ * @param[in] r Componente Vermelho.
+ * @param[in] g Componente Verde.
+ * @param[in] b Componente Azul.
  */
 void led_matrix_draw_number(uint8_t num, uint8_t r, uint8_t g, uint8_t b);
 
 /**
- * @brief Preenche toda a matriz com uma cor fixa.
+ * @brief Define uma cor única para todos os LEDs da matriz simultaneamente.
  *
- * @param r Componente Vermelho
- * @param g Componente Verde
- * @param b Componente Azul
+ * @param[in] r Componente Vermelho.
+ * @param[in] g Componente Verde.
+ * @param[in] b Componente Azul.
  */
 void led_matrix_set_all(uint8_t r, uint8_t g, uint8_t b);
 

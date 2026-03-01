@@ -1,10 +1,19 @@
+/**
+ * @file core1_display.c
+ * @brief Implementação da lógica de exibição dedicada para o Core 1.
+ *
+ * Realiza o polling do estado compartilhado e atualiza os periféricos visuais
+ * de forma independente do processamento principal no Core 0.
+ */
+
 #include "core1_display.h"
 #include "drivers/display/display.h"
 #include "drivers/display/ws2812.h"
 #include "pico/stdlib.h"
-#include "shared_state_reader.h" // só getters - sem acesso a setters
+#include "shared_state_reader.h"
 #include <stdio.h>
 
+/** @brief Intervalo de atualização do loop do Core 1 (100ms). */
 #define DISPLAY_REFRESH_MS 100
 
 void core1_display_entry(void) {
@@ -12,26 +21,22 @@ void core1_display_entry(void) {
   // recurso)
   led_matrix_init();
 
-  // Core 1 inicializa seu próprio contexto - display já foi inicializado
-  // pelo Core 0 no boot, não chame display_init() aqui.
-
   while (true) {
+    /* Coleta de dados do estado (Apenas leitura) */
     uint32_t score = shared_state_get_local_score();
     connection_status_t status = shared_state_get_connection_status();
     bool milestone = shared_state_take_milestone_triggered();
     bool led_flash = shared_state_take_led_flash_requested();
-
     bool fallback = shared_state_get_fallback_in_use();
-
     bool server_error = shared_state_get_server_error_active();
 
     char buf_score[20];
     char buf_status[20];
 
     // Formata placar
-    snprintf(buf_score, sizeof(buf_score), "Placar: %u", score);
+    snprintf(buf_score, sizeof(buf_score), "Placar: %u", (unsigned int)score);
 
-    // Formata status de conexão
+    // Formata status de conexão para exibição
     switch (status) {
     case STATUS_ONLINE:
       if (server_error) {
@@ -61,36 +66,36 @@ void core1_display_entry(void) {
     display_text(2, 0, buf_score);
     display_text(4, 0, buf_status);
 
-    // Milestone: mostra indicador visual no display
+    /* Tratamento de Marcos (Milestones) */
     if (milestone) {
       display_text(6, 0, "MILESTONE!");
-      // Blink duplo dourado em toda a matriz (suave via driver)
+      // Blink duplo dourado em toda a matriz
       for (int j = 0; j < 2; j++) {
-        led_matrix_set_all(15, 10, 0); // Dourado escuro agradável
+        led_matrix_set_all(15, 10, 0);
         sleep_ms(150);
         led_clear_all();
         sleep_ms(100);
       }
-      // Mostra o número 0 em dourado
+      // Mostra o número 0 em dourado como destaque
       led_matrix_draw_number(0, 15, 10, 0);
     } else {
-      // Atualiza a matriz de LEDs com o dígito atual (Apresentação Core 1)
-      uint8_t digito = score % 10;
-      led_matrix_draw_number(digito, 8, 8, 8); // Branco suave e perceptível
+      // Atualiza a matriz de LEDs com o dígito menos significativo do score
+      uint8_t digito = (uint8_t)(score % 10u);
+      led_matrix_draw_number(digito, 8, 8, 8);
     }
 
     display_show();
 
-    // LED flash: pisca LED central se solicitado (Feedback de clique)
+    /* Feedback visual de clique (Flash azul no LED central) */
     bool just_flashed = false;
     if (led_flash) {
-      led_set(12, 0, 0, 15); // Feedback azulado fraco
+      led_set(12, 0, 0, 15);
       sleep_ms(50);
       led_set(12, 0, 0, 0);
       just_flashed = true;
     }
 
-    // Heartbeat: pisca o LED central a cada ~1s para indicar "estamos vivos"
+    /* Lógica de Heartbeat (Sinal de vida do sistema) */
     static uint32_t last_blink = 0;
     uint32_t now = to_ms_since_boot(get_absolute_time());
     if (now - last_blink > 1000) {
@@ -98,15 +103,14 @@ void core1_display_entry(void) {
       static bool hb_state = false;
       hb_state = !hb_state;
 
-      // Só aplica o estado do heartbeat se não tivermos acabado de piscar pelo
-      // clique Isso evita que o heartbeat apague o feedback do clique
-      // imediatamente.
+      // Só aplica o estado do heartbeat se não houver conflito com o flash de
+      // clique
       if (!just_flashed) {
         if (hb_state) {
           if (server_error) {
-            led_set(12, 15, 0, 0); // Vermelho forte: Rediscovering
+            led_set(12, 15, 0, 0); // Vermelho: Erro de servidor/Discovery
           } else {
-            led_set(12, 4, 4, 4); // Branco de fundo/heartbeat
+            led_set(12, 4, 4, 4); // Branco suave: Operação normal
           }
         } else {
           led_set(12, 0, 0, 0);
