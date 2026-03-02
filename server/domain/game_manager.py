@@ -9,7 +9,7 @@ RATE_LIMIT = 50
 MILESTONES = [100, 500, 1000, 5000, 10000]
 
 class GameManager():
-    def __init__(self, node_registry, game_repo, lamport_clock, lock=None):
+    def __init__(self, node_registry, game_repo, lamport_clock, lock=None, notifier=None):
         self.global_score = 0
         self.nodes = {} 
         self.milestones_done = set()
@@ -17,6 +17,7 @@ class GameManager():
         self.game_repo = game_repo
         self.lamport_clock = lamport_clock
         self.lock = lock
+        self.notifier = notifier  # async callable(message: str) para notificações de domínio
 
     def _get_node_data(self, node_id):
         if node_id not in self.nodes:
@@ -190,19 +191,27 @@ class GameManager():
         node = self._get_node_data(node_id)
         node["score"] = db_node["score"]
         
-        # Rate Limiting proporcional ao tempo offline
+        # ============================================================
+        # RATE LIMITING PROPORCIONAL AO TEMPO OFFLINE
+        # ============================================================
+        
+        # Calcula tempo offline baseado em last_seen (timestamp Unix)
         last_seen = db_node.get("last_seen")
         
         if last_seen is None:
+            # Primeira sincronização deste nó: aceita tudo
             accepted = accumulated_clicks
             rejected = 0
             log_normal("[SYNC]", "primeira_sync_aceita_tudo",
                        node=node_id, accepted=accepted)
         else:
             offline_seconds = max(0, now - last_seen)
-            max_allowed     = int(RATE_LIMIT * offline_seconds)
-            accepted        = min(accumulated_clicks, max_allowed)
-            rejected        = accumulated_clicks - accepted
+            # Limite máximo: RATE_LIMIT clicks/s × tempo offline
+            max_allowed = int(RATE_LIMIT * offline_seconds)
+
+            # Aceita apenas o mínimo entre cliques enviados e limite calculado
+            accepted = min(accumulated_clicks, max_allowed)
+            rejected = accumulated_clicks - accepted
 
             if rejected > 0:
                 metric_inc("rate_limited_clicks", rejected)
@@ -216,6 +225,10 @@ class GameManager():
                 log_normal("[SYNC]", "sync_aceita_tudo",
                            node=node_id, accepted=accepted,
                            offline_s=round(offline_seconds, 1))
+        
+        # ============================================================
+        # FIM DO RATE LIMITING
+        # ============================================================
         
         # Atualização de scores
         before_global = self.global_score
@@ -264,14 +277,31 @@ class GameManager():
                    global_score=self.global_score,
                    node_score=node["score"], lamport_ts=lamport_ts)
 
+        # Notifica o dashboard da transição SYNCING → ACTIVE
+        if self.notifier:
+            import json as _json
+            await self.notifier(_json.dumps({
+                "event": "sync_complete",
+                "node_id": node_id,
+                "transition": "SYNCING->ACTIVE",
+                "global_score": self.global_score,
+                "node_score": node["score"],
+                "lamport_ts": lamport_ts,
+            }))
+
+        # Coleta scores de todos os nós para compor a resposta completa
+        node_scores = await self.game_repo.get_nodes_scores()
+
         return {
             "status": "SUCCESS",
             "accepted_clicks": accepted,
             "rejected_clicks": rejected,
             "global_score": self.global_score,
+            "local_score": node["score"],
             "node_score": node["score"],
             "lamport_ts": lamport_ts,
             "milestone": len(milestones_reached) > 0,
-            "milestone_value": milestones_reached[-1] if milestones_reached else None
+            "milestone_value": milestones_reached[-1] if milestones_reached else None,
+            "node_scores": node_scores,
         }
 

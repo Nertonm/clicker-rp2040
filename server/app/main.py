@@ -62,13 +62,16 @@ async def main():
     
     # 5. Inicia Dashboard (Task Independente)
     try:
-        await start_dashboard(
+        _broadcast_task, ws_server = await start_dashboard(
             game_manager=manager,
             node_registry=registry,
             get_active_connections_fn=get_active_conns,
             http_port=config.DASHBOARD_HTTP_PORT,
             ws_port=config.DASHBOARD_WS_PORT
         )
+        # Injeta o notifier no GameManager após o dashboard estar pronto.
+        # ws_server.broadcast tem a assinatura async(str) esperada pelo notifier.
+        manager.notifier = ws_server.broadcast
     except Exception as e:
         print(f"[Dashboard] Falha ao iniciar: {e} - O servidor continuará sem dashboard.")
 

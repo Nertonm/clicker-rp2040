@@ -23,4 +23,4 @@ async def start_dashboard(game_manager, node_registry, get_active_connections_fn
     print(f"[Dashboard] Servidor HTTP em http://0.0.0.0:{http_port}")
     print(f"[Dashboard] Servidor WebSocket em ws://0.0.0.0:{ws_port}")
     
-    return broadcast_task
+    return broadcast_task, ws_server
