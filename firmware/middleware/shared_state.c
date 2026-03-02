@@ -12,6 +12,25 @@
 #include "shared_state.h"
 #include "hardware/sync.h"
 #include <string.h>
+#include "debug_log.h"
+
+/* --- Contadores de diagnóstico do shared_state --- */
+static uint32_t diag_status_transitions = 0;
+static uint32_t diag_restore_clicks_total = 0;
+static uint32_t diag_take_pending_total = 0;
+
+/* Limite seguro para contadores - evita overflow com margem */
+#define COUNTER_MAX_SAFE (UINT32_MAX - 10000)
+
+/**
+ * @brief Soma saturante: retorna a + b, ou COUNTER_MAX_SAFE se overflow.
+ */
+static inline uint32_t saturating_add(uint32_t a, uint32_t b) {
+  if (a > COUNTER_MAX_SAFE - b) {
+    return COUNTER_MAX_SAFE;
+  }
+  return a + b;
+}
 
 /**
  * @brief Estrutura centralizada para estado compartilhado entre cores.
@@ -20,18 +39,27 @@
  * acessados ou modificados por diferentes tarefas ou núcleos.
  */
 typedef struct {
-  uint32_t pending_clicks;           /**< Contador de cliques do botão A aguardando processamento. */
-  uint32_t pending_turbo_activations; /**< Contador de pedidos de ativação de turbo do botão B. */
-  uint32_t local_score;              /**< Pontuação local do dispositivo. */
-  uint32_t global_score;             /**< Pontuação global da rede. */
-  uint32_t node_scores[MAX_NODES];   /**< Array de pontuações individuais de todos os nós. */
-  uint32_t turbo_until_ms;           /**< Timestamp de expiração do modo turbo. */
-  connection_status_t connection_status; /**< Estado atual da conexão WiFi/RPC. */
-  bool milestone_triggered;          /**< Flag indicando que um marco foi atingido. */
-  bool led_flash_requested;          /**< Flag solicitando feedback visual rápido (flash). */
-  bool turbo_active;                 /**< Indica se o modo turbo está atualmente em vigor. */
-  bool fallback_in_use;              /**< Indica se o IP de fallback está sendo utilizado. */
-  bool server_error_active;          /**< Indica se o servidor reportou erro persistente. */
+  uint32_t pending_clicks; /**< Contador de cliques do botão A aguardando
+                              processamento. */
+  uint32_t
+      syncing_count; /**< Snapshot de cliques durante sincronização offline. */
+  uint32_t offline_clicks; /**< Cliques acumulados em modo offline (feedback). */
+  uint32_t pending_turbo_activations; /**< Contador de pedidos de ativação de
+                                         turbo do botão B. */
+  uint32_t local_score;               /**< Pontuação local do dispositivo. */
+  uint32_t global_score;              /**< Pontuação global da rede. */
+  uint32_t node_scores[MAX_NODES]; /**< Array de pontuações individuais de todos
+                                      os nós. */
+  uint32_t turbo_until_ms;         /**< Timestamp de expiração do modo turbo. */
+  connection_status_t
+      connection_status;    /**< Estado atual da conexão WiFi/RPC. */
+  bool milestone_triggered; /**< Flag indicando que um marco foi atingido. */
+  bool led_flash_requested; /**< Flag solicitando feedback visual rápido
+                               (flash). */
+  bool turbo_active;    /**< Indica se o modo turbo está atualmente em vigor. */
+  bool fallback_in_use; /**< Indica se o IP de fallback está sendo utilizado. */
+  bool server_error_active; /**< Indica se o servidor reportou erro persistente.
+                             */
 } shared_state_t;
 
 /** @brief Instância privada do estado. */
@@ -42,7 +70,7 @@ static spin_lock_t *state_lock;
 
 void shared_state_init(void) {
   // Inicializa a estrutura com zeros
-  memset(&state, 0, sizeof(shared_state_t));
+  memset(&state, 0, sizeof(shared_state_t)); // syncing_count inicia em 0
   state.connection_status = STATUS_CONNECTING;
   state.fallback_in_use = false;
   state.server_error_active = false;
@@ -52,13 +80,14 @@ void shared_state_init(void) {
   state_lock = spin_lock_instance(lock_num);
 }
 
-/** 
+/**
  * @brief Macro para adquirir o lock e desabilitar interrupções locais.
- * @note Armazena o estado anterior das interrupções na variável local 'irq_status'.
+ * @note Armazena o estado anterior das interrupções na variável local
+ * 'irq_status'.
  */
 #define LOCK_STATE() uint32_t irq_status = spin_lock_blocking(state_lock)
 
-/** 
+/**
  * @brief Macro para liberar o lock e restaurar o estado das interrupções.
  */
 #define UNLOCK_STATE() spin_unlock(state_lock, irq_status)
@@ -74,7 +103,7 @@ uint32_t shared_state_get_pending_clicks(void) {
 
 void shared_state_increment_pending_clicks(void) {
   LOCK_STATE();
-  state.pending_clicks++;
+  state.pending_clicks = saturating_add(state.pending_clicks, 1);
   UNLOCK_STATE();
 }
 
@@ -83,12 +112,58 @@ uint32_t shared_state_take_pending_clicks(void) {
   uint32_t val = state.pending_clicks;
   state.pending_clicks = 0;
   UNLOCK_STATE();
+  DIAG_CNT_INC(diag_take_pending_total);
+  LOG_VERBOSE("[STATE]", "take_pending_clicks: val=%lu total_takes=%lu",
+              (unsigned long)val, (unsigned long)diag_take_pending_total);
   return val;
+}
+
+uint32_t shared_state_get_syncing_count(void) {
+  LOCK_STATE();
+  uint32_t val = state.syncing_count;
+  UNLOCK_STATE();
+  return val;
+}
+
+void shared_state_set_syncing_count(uint32_t count) {
+  LOCK_STATE();
+  uint32_t prev = state.syncing_count;
+  state.syncing_count = count;
+  UNLOCK_STATE();
+  if (count != prev) {
+    LOG_VERBOSE("[STATE]", "syncing_count: %lu -> %lu",
+                (unsigned long)prev, (unsigned long)count);
+  }
 }
 
 void shared_state_restore_clicks(uint32_t n) {
   LOCK_STATE();
-  state.pending_clicks += n;
+  uint32_t prev = state.pending_clicks;
+  state.pending_clicks = saturating_add(state.pending_clicks, n);
+  uint32_t after = state.pending_clicks;
+  UNLOCK_STATE();
+  diag_restore_clicks_total += n;
+  LOG_VERBOSE("[STATE]", "restore_clicks: n=%lu pending: %lu->%lu total_restored=%lu",
+              (unsigned long)n, (unsigned long)prev, (unsigned long)after,
+              (unsigned long)diag_restore_clicks_total);
+}
+
+void shared_state_add_offline_clicks(uint32_t n) {
+  LOCK_STATE();
+  state.offline_clicks += n;
+  UNLOCK_STATE();
+}
+
+uint32_t shared_state_get_offline_clicks(void) {
+  LOCK_STATE();
+  uint32_t val = state.offline_clicks;
+  UNLOCK_STATE();
+  return val;
+}
+
+void shared_state_clear_offline_clicks(void) {
+  LOCK_STATE();
+  state.offline_clicks = 0;
   UNLOCK_STATE();
 }
 
@@ -140,17 +215,31 @@ void shared_state_set_node_scores(const uint32_t *in_scores, uint8_t count) {
 
 void shared_state_set_scores(const RpcClickResult *result) {
   LOCK_STATE();
+  connection_status_t prev_status = state.connection_status;
+  uint32_t prev_local  = state.local_score;
+  uint32_t prev_global = state.global_score;
 
-  state.local_score = (uint32_t)result->local_score;
-  state.global_score = (uint32_t)result->global_score;
+  /* Protege contra valores negativos vindos do servidor */
+  state.local_score = (result->local_score >= 0) ? (uint32_t)result->local_score : 0;
+  state.global_score = (result->global_score >= 0) ? (uint32_t)result->global_score : 0;
   state.connection_status = STATUS_ONLINE;
   state.server_error_active = false;
 
   if (result->milestone_triggered) {
     state.milestone_triggered = true;
   }
-
   UNLOCK_STATE();
+
+  LOG_VERBOSE("[STATE]", "set_scores: local=%lu->%lu global=%lu->%lu milestone=%d",
+              (unsigned long)prev_local, (unsigned long)result->local_score,
+              (unsigned long)prev_global, (unsigned long)result->global_score,
+              (int)result->milestone_triggered);
+  if (prev_status != STATUS_ONLINE) {
+    DIAG_CNT_INC(diag_status_transitions);
+    LOG_NORMAL("[STATE]", "STATUS: %s -> ONLINE (via set_scores, trans#%lu)",
+               conn_status_name((int)prev_status),
+               (unsigned long)diag_status_transitions);
+  }
 }
 
 connection_status_t shared_state_get_connection_status(void) {
@@ -162,8 +251,16 @@ connection_status_t shared_state_get_connection_status(void) {
 
 void shared_state_set_connection_status(connection_status_t status) {
   LOCK_STATE();
+  connection_status_t prev = state.connection_status;
   state.connection_status = status;
   UNLOCK_STATE();
+  if (prev != status) {
+    DIAG_CNT_INC(diag_status_transitions);
+    LOG_NORMAL("[STATE]", "STATUS: %s -> %s (trans#%lu)",
+               conn_status_name((int)prev),
+               conn_status_name((int)status),
+               (unsigned long)diag_status_transitions);
+  }
 }
 
 bool shared_state_get_milestone_triggered(void) {
@@ -281,3 +378,16 @@ void shared_state_lock_enter(uint32_t *save) {
 }
 
 void shared_state_lock_exit(uint32_t save) { spin_unlock(state_lock, save); }
+
+void shared_state_get_display_snapshot(display_snapshot_t *snapshot) {
+  LOCK_STATE();
+  snapshot->local_score = state.local_score;
+  snapshot->global_score = state.global_score;
+  snapshot->pending_clicks = state.pending_clicks;
+  snapshot->syncing_count = state.syncing_count;
+  snapshot->offline_clicks = state.offline_clicks;
+  snapshot->status = state.connection_status;
+  snapshot->turbo_active = state.turbo_active;
+  snapshot->turbo_until_ms = state.turbo_until_ms;
+  UNLOCK_STATE();
+}

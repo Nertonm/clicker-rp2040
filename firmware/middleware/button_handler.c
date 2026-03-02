@@ -37,6 +37,10 @@ uint32_t button_handler_get_b_count(void) {
   return 0;
 }
 
+/** @brief Contador de interrupções para diagnóstico */
+static volatile uint32_t irq_total_count = 0;
+static volatile uint32_t irq_accepted_count = 0;
+
 /**
  * @brief Callback de interrupção (ISR) para eventos GPIO.
  *
@@ -51,11 +55,16 @@ static void gpio_irq_callback(uint gpio, uint32_t events) {
 
   /* Processamento do Botão A (Cliques) */
   if (gpio == BUTTON1_PIN && (events & GPIO_IRQ_EDGE_FALL)) {
-    if (now - last_a_us >= DEBOUNCE_US) {
+    irq_total_count++;
+    uint64_t delta = now - last_a_us;
+    if (delta >= DEBOUNCE_US) {
       last_a_us = now;
+      irq_accepted_count++;
       shared_state_increment_pending_clicks();
+      /* NÃO chamar printf() em ISR: bloqueia esperando UART/USB e causa reset.
+       * O contador irq_accepted_count é reportado pelo task_monitor via [STATS]. */
     }
-  } 
+  }
   /* Processamento do Botão B (Turbo) */
   else if (gpio == BUTTON2_PIN && (events & GPIO_IRQ_EDGE_FALL)) {
     if (now - last_b_us >= DEBOUNCE_US) {
@@ -63,6 +72,12 @@ static void gpio_irq_callback(uint gpio, uint32_t events) {
       shared_state_request_turbo_activation();
     }
   }
+}
+
+uint32_t button_handler_get_irq_stats(uint32_t *total, uint32_t *accepted) {
+  if (total) *total = irq_total_count;
+  if (accepted) *accepted = irq_accepted_count;
+  return irq_accepted_count;
 }
 
 void button_handler_init(void) {

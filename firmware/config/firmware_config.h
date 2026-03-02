@@ -14,12 +14,21 @@
 
 /** @name Configurações de Tarefas */
 /** @{ */
-#define CLICK_QUEUE_LEN 32        /**< Profundidade máxima da fila de cliques. */
-#define DISPLAY_PERIOD_MS 150     /**< Intervalo de atualização da interface visual (ms). */
+#define CLICK_QUEUE_LEN 64        /**< Profundidade máxima da fila de cliques. */
+#define DISPLAY_PERIOD_MS 50      /**< Intervalo de atualização da interface visual (ms). */
 #define MONITOR_PERIOD_MS 5000    /**< Intervalo de log de telemetria (ms). */
 #define RPC_POLL_PERIOD_MS 100    /**< Latência de resposta da tarefa RPC (ms). */
 #define SCORES_REFRESH_MS 5000    /**< Intervalo de busca de scores globais (ms). */
-#define RPC_REGISTER_RETRY_MS 5000 /**< Intervalo de sondagem de reconexão em modo OFFLINE (ms). */
+
+/** @brief Backoff exponencial para retry de registro (ms).
+ *  Valores: 1s, 2s, 5s, 10s (máximo). */
+#define RPC_REGISTER_BACKOFF_1 1000
+#define RPC_REGISTER_BACKOFF_2 2000
+#define RPC_REGISTER_BACKOFF_3 5000
+#define RPC_REGISTER_BACKOFF_MAX 10000
+
+/** @brief Intervalo de retry de conexão WiFi (ms). */
+#define WIFI_RETRY_INTERVAL_MS 30000
 /** @} */
 
 /** @name Regras de Jogo */

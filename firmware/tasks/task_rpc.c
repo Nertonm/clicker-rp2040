@@ -14,6 +14,7 @@
 
 #include "config/firmware_config.h"
 #include "config/net_config.h"
+#include "debug_log.h"
 #include "discovery/service_disc.h"
 #include "hardware_config.h"
 #include "middleware/app_queues.h"
@@ -102,22 +103,63 @@ void task_rpc(void *param) {
     }
   }
 
-  /* Tenta conectar ao WiFi */
-  bool wifi_ok = setup_wifi();
-  if (!wifi_ok) {
+  /* Tenta conectar ao WiFi com retry periódico */
+  TickType_t last_wifi_attempt = 0;
+wifi_connect:
+  if (last_wifi_attempt == 0 ||
+      (xTaskGetTickCount() - last_wifi_attempt) >=
+          pdMS_TO_TICKS(WIFI_RETRY_INTERVAL_MS)) {
+    last_wifi_attempt = xTaskGetTickCount();
+
+    if (setup_wifi()) {
+      goto wifi_connected;
+    }
     shared_state_set_connection_status(STATUS_OFFLINE);
-    /* Loop infinito em modo offline se WiFi falhar */
+    printf("[WIFI] Próxima tentativa em %d segundos\n",
+           WIFI_RETRY_INTERVAL_MS / 1000);
+  }
+
+  /* Loop de modo offline com retry periódico */
+  {
+    uint32_t offline_restored = 0;
+    uint32_t offline_loop_iter = 0;
     while (1) {
+      offline_loop_iter++;
+
       if (shared_state_take_turbo_activation_requested()) {
         apply_local_turbo(TURBO_DURATION_MS);
-        printf("[TURBO] Ativado em modo offline por %u ms\n",
-               TURBO_DURATION_MS);
+        LOG_NORMAL("[TURBO]", "Ativado em modo offline duracao_ms=%u", TURBO_DURATION_MS);
       }
+
       click_msg_t msg;
-      (void)xQueueReceive(queue_clicks, &msg, pdMS_TO_TICKS(500));
+      if (xQueueReceive(queue_clicks, &msg, pdMS_TO_TICKS(500)) == pdPASS) {
+        /* Devolve cliques para pending_clicks (serão sincronizados ao reconectar) */
+        uint32_t before = shared_state_get_pending_clicks();
+        shared_state_restore_clicks(msg.clicks);
+        offline_restored += msg.clicks;
+        uint32_t after = shared_state_get_pending_clicks();
+        LOG_VERBOSE("[SYNC]", "OFFLINE restore: msg=%lu pending: %lu->%lu total_restored=%lu",
+                    (unsigned long)msg.clicks,
+                    (unsigned long)before, (unsigned long)after,
+                    (unsigned long)offline_restored);
+        /* Invariante: pending aumentou */
+        DIAG_CHECK(after >= before, "[ERROR]",
+                   "pending_clicks nao aumentou apos restore pending_antes=%lu depois=%lu",
+                   (unsigned long)before, (unsigned long)after);
+      }
+
+      /* Verifica se é hora de tentar reconectar WiFi */
+      if ((xTaskGetTickCount() - last_wifi_attempt) >=
+          pdMS_TO_TICKS(WIFI_RETRY_INTERVAL_MS)) {
+        printf("[WIFI] Tentando reconexão...\n");
+        goto wifi_connect;
+      }
+
       vTaskDelay(pdMS_TO_TICKS(100));
     }
   }
+
+wifi_connected:
 
   setup_network_target();
 
@@ -130,8 +172,30 @@ void task_rpc(void *param) {
   TickType_t last_scores_refresh = xTaskGetTickCount();
   TickType_t last_register_attempt = 0;
   uint8_t consecutive_rpc_failures = 0;
+  uint8_t consecutive_register_failures = 0;
 
+  /* Backoff exponencial para retry de registro (definido em firmware_config.h) */
+  static const uint32_t register_backoff_ms[] = {
+      RPC_REGISTER_BACKOFF_1,
+      RPC_REGISTER_BACKOFF_2,
+      RPC_REGISTER_BACKOFF_3,
+      RPC_REGISTER_BACKOFF_MAX
+  };
+
+  static uint32_t loop_count = 0;
+  /* Intervalo para dump de stats peridiocs (a cada 500 iterações) */
+  #define STATS_DUMP_INTERVAL 500u
   while (1) {
+    loop_count++;
+    if ((loop_count % 100) == 0) {
+      LOG_VERBOSE("[RPC]", "loop #%lu", (unsigned long)loop_count);
+    }
+    /* Dump periódico de estatísticas a cada STATS_DUMP_INTERVAL iterações */
+    if ((loop_count % STATS_DUMP_INTERVAL) == 0) {
+      rpc_print_diagnostics();
+      lamport_print_diagnostics();
+    }
+
     /* Processamento de Power-up (Turbo) */
     if (shared_state_take_turbo_activation_requested()) {
       uint32_t turbo_ms = TURBO_DURATION_MS;
@@ -148,27 +212,42 @@ void task_rpc(void *param) {
     /* Lógica de Registro Inicial e Reconexão */
     if (!registered) {
       TickType_t now_ticks = xTaskGetTickCount();
+      /* Calcula delay com backoff exponencial */
+      uint8_t backoff_idx = consecutive_register_failures;
+      if (backoff_idx > 3) backoff_idx = 3;
+      uint32_t current_retry_ms = register_backoff_ms[backoff_idx];
+
       if ((last_register_attempt == 0) ||
           ((now_ticks - last_register_attempt) >=
-           pdMS_TO_TICKS(RPC_REGISTER_RETRY_MS))) {
+           pdMS_TO_TICKS(current_retry_ms))) {
         last_register_attempt = now_ticks;
         shared_state_set_connection_status(STATUS_CONNECTING);
         RpcSimpleResult reg = rpc_register_node((uint8_t)NODE_ID);
         if (reg.success) {
           registered = true;
-          consecutive_rpc_failures = 0; // Reset ao reconectar
+          consecutive_rpc_failures = 0;
+          consecutive_register_failures = 0;
 
-          // --- Início da lógica de sincronização ---
-          uint32_t pending_snapshot = shared_state_take_pending_clicks();
+          /* --- Início da lógica de sincronização --- */
 
-          if (pending_snapshot > 0) {
+          /* Primeiro drena toda a fila para pending_clicks */
+          click_msg_t drain_msg;
+          while (xQueueReceive(queue_clicks, &drain_msg, 0) == pdPASS) {
+            shared_state_restore_clicks(drain_msg.clicks);
+          }
+
+          /* Pega todos os cliques pendentes para sincronizar */
+          uint32_t total_to_sync = shared_state_take_pending_clicks();
+
+          if (total_to_sync > 0) {
+            shared_state_set_syncing_count(total_to_sync);
             shared_state_set_connection_status(STATUS_SYNCING);
             printf("[RPC] Sincronizando %lu cliques pendentes...\n",
-                   (unsigned long)pending_snapshot);
+                   (unsigned long)total_to_sync);
 
             uint32_t lamport_sent = lamport_tick();
             RpcClickResult sync_res =
-                rpc_sync_offline((int)pending_snapshot, lamport_sent);
+                rpc_sync_offline((int)total_to_sync, lamport_sent);
 
             if (sync_res.success) {
               lamport_update((uint32_t)sync_res.lamport_ts);
@@ -184,27 +263,34 @@ void task_rpc(void *param) {
                 printf("[MILESTONE] Marco atingido durante sync: %d\n",
                        sync_res.milestone_value);
               }
-
-              vTaskDelay(pdMS_TO_TICKS(500));
             } else {
-              printf("[RPC] ERRO: Sync falhou (erro=%d), voltando para OFFLINE\n",
-                     sync_res.error_code);
-              shared_state_restore_clicks(pending_snapshot);
+              printf(
+                  "[RPC] ERRO: Sync falhou (erro=%d), voltando para OFFLINE\n",
+                  sync_res.error_code);
+              shared_state_restore_clicks(total_to_sync);
+              shared_state_set_syncing_count(0);
               shared_state_set_connection_status(STATUS_OFFLINE);
               registered = false;
               continue;
             }
           }
-          // --- Fim da lógica de sincronização ---
+          /* --- Fim da lógica de sincronização --- */
 
+          shared_state_set_syncing_count(0);
           shared_state_set_connection_status(STATUS_ONLINE);
           shared_state_set_server_error_active(false);
-          printf("[RPC] Nó %d registrado\n", NODE_ID);
+          printf("[RPC] Nó %d registrado e sincronizado\n", NODE_ID);
         } else {
+          consecutive_register_failures++;
           shared_state_set_connection_status(STATUS_OFFLINE);
+          printf("[RPC] Registro falhou, próximo retry em %lu ms\n",
+                 (unsigned long)register_backoff_ms[
+                     consecutive_register_failures > 3 ? 3 : consecutive_register_failures]);
         }
       }
 
+      /* Quando offline, task_buttons mantém cliques em pending_clicks,
+       * então não precisa drenar a fila aqui */
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
     }
@@ -216,13 +302,14 @@ void task_rpc(void *param) {
       connection_status_t current_status = shared_state_get_connection_status();
 
       if (current_status == STATUS_OFFLINE) {
-        // Se estamos OFFLINE, não tenta RPC, apenas restaura cliques para acúmulo local
+        /* Se estamos OFFLINE, não tenta RPC, apenas acumula localmente */
         shared_state_restore_clicks(msg.clicks);
       } else {
         // Apenas processa RPC se estiver ONLINE ou CONNECTING
         do {
           uint32_t lamport_sent = lamport_tick();
-          RpcClickResult click_res = rpc_add_clicks((int)msg.clicks, lamport_sent);
+          RpcClickResult click_res =
+              rpc_add_clicks((int)msg.clicks, lamport_sent);
 
           if (click_res.success) {
             printf("[LAMPORT] sent=%lu recv=%lu monotonic=%s\n",
@@ -234,40 +321,63 @@ void task_rpc(void *param) {
             consecutive_rpc_failures = 0;
 
             lamport_update((uint32_t)click_res.lamport_ts);
-            shared_state_set_scores(&click_res);                // atômico
+            shared_state_set_scores(&click_res); // atômico
 
             if (click_res.milestone_triggered) {
               shared_state_set_led_flash_requested(true);
-              printf("[MILESTONE] Marco atingido: %d\n", click_res.milestone_value);
+              printf("[MILESTONE] Marco atingido: %d\n",
+                     click_res.milestone_value);
             }
 
             if (click_res.powerup_remaining_s > 0) {
-              apply_local_turbo((uint32_t)click_res.powerup_remaining_s * 1000u);
+              apply_local_turbo((uint32_t)click_res.powerup_remaining_s *
+                                1000u);
               printf("[TURBO] Power-up do servidor: %d s restantes\n",
                      click_res.powerup_remaining_s);
             }
           } else {
             /* Tratamento de Erros do Servidor */
             if (click_res.error_code == RPC_RATE_EXCEEDED) {
+              /* Rate limit: servidor aceitou apenas parte dos cliques.
+               * Atualiza scores com os cliques aceitos e restaura os rejeitados. */
+              if (click_res.accepted_clicks > 0) {
+                lamport_update((uint32_t)click_res.lamport_ts);
+                shared_state_set_scores(&click_res);
+              }
               uint32_t rejected =
                   msg.clicks - (uint32_t)click_res.accepted_clicks;
               if (rejected > 0) {
                 shared_state_restore_clicks(rejected);
               }
+              consecutive_rpc_failures = 0; /* Rate limit não é falha de rede */
             } else {
               shared_state_restore_clicks(msg.clicks);
               if (click_res.error_code == RPC_LAMPORT_VIOLATION) {
                 lamport_update((uint32_t)click_res.lamport_ts);
-                // Violação de Lamport não conta como falha de rede
+                /* Violação de Lamport não conta como falha de rede */
               } else {
-                // Falha de rede (timeout, desconexão, parse error, etc)
+                /* Falha de rede (timeout, desconexão, parse error, etc) */
                 consecutive_rpc_failures++;
                 printf("[RPC] Falha #%d/3\n", consecutive_rpc_failures);
 
                 if (consecutive_rpc_failures >= 3) {
-                  printf("[RPC] 3 falhas consecutivas, entrando em modo OFFLINE\n");
-                  shared_state_set_connection_status(STATUS_OFFLINE);                  consecutive_rpc_failures = 0; // Reset para próximo ciclo
-                  registered = false;           // Força re-registro na reconexão
+                  printf("[RPC] 3 falhas consecutivas, entrando em modo "
+                         "OFFLINE\n");
+                  /* Cliques já foram restaurados em pending_clicks acima */
+                  shared_state_set_connection_status(STATUS_OFFLINE);
+                  consecutive_rpc_failures = 0;
+                  registered = false;
+
+                  /* Drena fila e restaura todos os cliques pendentes */
+                  uint32_t drained_count = 0;
+                  click_msg_t drain;
+                  while (xQueueReceive(queue_clicks, &drain, 0) == pdPASS) {
+                    shared_state_restore_clicks(drain.clicks);
+                    drained_count++;
+                  }
+                  LOG_NORMAL("[RPC]", "Fila drenada para pending_clicks msgs_drenadas=%lu pending_final=%lu",
+                             (unsigned long)drained_count,
+                             (unsigned long)shared_state_get_pending_clicks());
                   break;
                 }
               }
@@ -285,9 +395,15 @@ void task_rpc(void *param) {
       if (scores.success) {
         uint32_t node_scores[MAX_NODES] = {0};
         for (uint8_t i = 0; i < MAX_NODES; i++) {
-          node_scores[i] = (uint32_t)scores.node_scores[i];
+          /* Protege contra valores negativos vindos do servidor */
+          node_scores[i] = (scores.node_scores[i] >= 0)
+                               ? (uint32_t)scores.node_scores[i]
+                               : 0;
         }
-        shared_state_set_global_score((uint32_t)scores.global_score);
+        uint32_t global = (scores.global_score >= 0)
+                              ? (uint32_t)scores.global_score
+                              : 0;
+        shared_state_set_global_score(global);
         shared_state_set_node_scores(node_scores, MAX_NODES);
         shared_state_set_local_score(node_scores[NODE_ID % MAX_NODES]);
         shared_state_set_connection_status(STATUS_ONLINE);
