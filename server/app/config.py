@@ -15,3 +15,6 @@ UDP_DISCOVER_PORT = 9999
 # Configurações Dashboard
 DASHBOARD_HTTP_PORT = 8080
 DASHBOARD_WS_PORT = 8081  # WebSocket separado para facilitar roteamento manual
+
+# Endpoint de diagnóstico HTTP
+DEBUG_HTTP_PORT = int(os.environ.get("DEBUG_HTTP_PORT", 8090))

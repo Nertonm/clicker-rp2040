@@ -16,7 +16,7 @@
 
 /**
  * @brief Limiar de debounce configurável em microssegundos.
- * @note Padrão de 50ms para evitar ruídos de contato mecânico.
+ * @note 50ms é um bom balanço entre responsividade (~20 cliques/s) e anti-bounce.
  */
 #define DEBOUNCE_US 50000
 
@@ -44,5 +44,14 @@ uint32_t button_handler_get_a_count(void);
  * @return uint32_t Número de cliques registrados.
  */
 uint32_t button_handler_get_b_count(void);
+
+/**
+ * @brief Obtém estatísticas de interrupções para diagnóstico.
+ *
+ * @param[out] total Total de interrupções recebidas (pode ser NULL).
+ * @param[out] accepted Interrupções aceitas após debounce (pode ser NULL).
+ * @return uint32_t Valor de accepted.
+ */
+uint32_t button_handler_get_irq_stats(uint32_t *total, uint32_t *accepted);
 
 #endif // BUTTON_HANDLER_H

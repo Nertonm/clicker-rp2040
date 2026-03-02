@@ -49,4 +49,12 @@ void lamport_update(uint32_t received_ts);
  */
 uint32_t lamport_get_current(void);
 
+/**
+ * @brief Imprime estatísticas de diagnóstico do relógio Lamport.
+ *
+ * Exibe via printf: ts atual, total de ticks, updates, saltos anormais e resets.
+ * Pode ser chamada periodicamente pelo task_monitor ou sob demanda.
+ */
+void lamport_print_diagnostics(void);
+
 #endif /* LAMPORT_H */

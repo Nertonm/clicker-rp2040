@@ -5,6 +5,7 @@ from app import config
 from infra import db
 from infra.rpc_server import start_rpc_server
 from infra.udp_discovery import start_udp_discovery
+from infra.debug_server import start_debug_server
 from domain.lamport_clock import LamportClock
 from domain.node_registry import NodeRegistry
 from domain.game_repository import GameRepository
@@ -74,7 +75,23 @@ async def main():
     # 6. Inicia Tasks de Background
     asyncio.create_task(background_tasks(registry))
 
+    # 7. Inicia Servidor HTTP de Diagnóstico (/debug)
+    debug_port = getattr(config, "DEBUG_HTTP_PORT", 8090)
+    try:
+        debug_server = await start_debug_server(
+            game_manager=manager,
+            node_registry=registry,
+            game_repo=game_repo,
+            get_active_connections_fn=get_active_conns,
+            port=debug_port,
+        )
+        asyncio.create_task(debug_server.serve_forever())
+    except Exception as e:
+        print(f"[Debug] Falha ao iniciar debug server: {e} - continuando sem endpoint /debug.")
+        debug_server = None
+
     local_ip = get_local_ip()
+    debug_port_actual = getattr(config, "DEBUG_HTTP_PORT", 8090)
     print("\n" + "="*50)
     print(f"AbacateOS - SERVIDOR INICIADO")
     print(f"IP LOCAL: {local_ip}")
@@ -83,6 +100,7 @@ async def main():
     print(f" - RPC: {config.RPC_HOST}:{config.RPC_PORT}")
     print(f" - UDP Discovery: port {config.UDP_DISCOVER_PORT}")
     print(f" - Dashboard: http://{local_ip}:{config.DASHBOARD_HTTP_PORT}")
+    print(f" - Debug:     http://{local_ip}:{debug_port_actual}/debug")
     
     async with rpc_server:
         await rpc_server.serve_forever()

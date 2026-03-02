@@ -12,9 +12,9 @@
 #ifndef SHARED_STATE_H
 #define SHARED_STATE_H
 
+#include "middleware/rpc_types.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include "middleware/rpc_types.h"
 
 /**
  * @brief Número máximo de nós suportados na rede.
@@ -34,7 +34,8 @@ typedef enum {
 /**
  * @brief Inicializa o estado compartilhado e o spinlock de proteção.
  *
- * @note Deve ser chamado pelo Core 0 antes de iniciar o Core 1 ou qualquer tarefa FreeRTOS.
+ * @note Deve ser chamado pelo Core 0 antes de iniciar o Core 1 ou qualquer
+ * tarefa FreeRTOS.
  */
 void shared_state_init(void);
 
@@ -60,12 +61,51 @@ void shared_state_increment_pending_clicks(void);
 uint32_t shared_state_take_pending_clicks(void);
 
 /**
+ * @brief Define a quantidade de cliques em processo de sincronização.
+ *
+ * Usado para exibir no OLED durante STATUS_SYNCING. Este campo preserva
+ * o snapshot de cliques pendentes enquanto a task de RPC realiza a chamada
+ * sync_offline, permitindo que a task de display mostre o valor correto.
+ *
+ * @param[in] count Número de cliques sendo sincronizados.
+ */
+void shared_state_set_syncing_count(uint32_t count);
+
+/**
+ * @brief Obtém a quantidade de cliques em sincronização.
+ * @return uint32_t Contador de cliques pendentes de sync.
+ */
+uint32_t shared_state_get_syncing_count(void);
+
+/**
  * @brief Restaura uma quantidade de cliques ao contador pendente.
  *
  * Utilizado para restaurar cliques em caso de falha de envio para o servidor.
  * @param[in] n Quantidade de cliques a serem restaurados.
  */
 void shared_state_restore_clicks(uint32_t n);
+
+/**
+ * @brief Acumula cliques no contador de modo offline.
+ *
+ * Usado para manter feedback visual quando offline. O contador é somado
+ * ao local_score para exibição na matriz de LEDs.
+ * @param[in] n Quantidade de cliques a acumular.
+ */
+void shared_state_add_offline_clicks(uint32_t n);
+
+/**
+ * @brief Obtém a quantidade de cliques acumulados offline.
+ * @return uint32_t Total de cliques desde a última sincronização.
+ */
+uint32_t shared_state_get_offline_clicks(void);
+
+/**
+ * @brief Zera o contador de cliques offline.
+ *
+ * Chamado após sincronização bem-sucedida com o servidor.
+ */
+void shared_state_clear_offline_clicks(void);
 
 /**
  * @brief Obtém a pontuação (score) local do dispositivo.
@@ -124,6 +164,33 @@ void shared_state_set_node_scores(const uint32_t *in_scores, uint8_t count);
 void shared_state_set_scores(const RpcClickResult *result);
 
 /**
+ * @brief Estrutura para leitura atômica de dados de exibição.
+ *
+ * Agrupa todos os campos necessários para renderização do display,
+ * permitindo leitura consistente em uma única operação atômica.
+ */
+typedef struct {
+  uint32_t local_score;        /**< Pontuação local do dispositivo. */
+  uint32_t global_score;       /**< Pontuação global da rede. */
+  uint32_t pending_clicks;     /**< Cliques aguardando envio. */
+  uint32_t syncing_count;      /**< Cliques em processo de sync. */
+  uint32_t offline_clicks;     /**< Cliques acumulados em modo offline. */
+  connection_status_t status;  /**< Estado da conexão. */
+  bool turbo_active;           /**< Modo turbo ativo. */
+  uint32_t turbo_until_ms;     /**< Timestamp de expiração do turbo. */
+} display_snapshot_t;
+
+/**
+ * @brief Obtém atomicamente todos os dados necessários para o display.
+ *
+ * Realiza uma única aquisição do spinlock para ler todos os campos
+ * relevantes, garantindo consistência temporal entre os valores.
+ *
+ * @param[out] snapshot Ponteiro para estrutura que receberá os dados.
+ */
+void shared_state_get_display_snapshot(display_snapshot_t *snapshot);
+
+/**
  * @brief Obtém o status atual da conexão.
  * @return connection_status_t Estado atual (Online, Offline, etc).
  */
@@ -138,14 +205,17 @@ void shared_state_set_connection_status(connection_status_t status);
 /**
  * @brief Adquire manualmente o spinlock do shared_state.
  *
- * Utilizado por módulos externos (ex: lamport.c) que necessitam compartilhar a mesma trava de exclusão mútua.
- * @param[out] save Ponteiro para armazenar o estado das interrupções (IRQ) antes da trava.
+ * Utilizado por módulos externos (ex: lamport.c) que necessitam compartilhar a
+ * mesma trava de exclusão mútua.
+ * @param[out] save Ponteiro para armazenar o estado das interrupções (IRQ)
+ * antes da trava.
  */
 void shared_state_lock_enter(uint32_t *save);
 
 /**
  * @brief Libera manualmente o spinlock do shared_state.
- * @param[in] save Valor retornado por shared_state_lock_enter para restaurar o estado de IRQ.
+ * @param[in] save Valor retornado por shared_state_lock_enter para restaurar o
+ * estado de IRQ.
  */
 void shared_state_lock_exit(uint32_t save);
 

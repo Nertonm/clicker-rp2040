@@ -118,4 +118,12 @@ void rpc_client_set_server_fallback(void);
  */
 bool rpc_is_connected(void);
 
+/**
+ * @brief Imprime estatísticas de diagnóstico do módulo RPC via printf.
+ *
+ * Exibe total de chamadas, sucessos, timeouts, desconexões e falhas de parse.
+ * Pode ser chamada periodicamente pelo task_monitor ou sob demanda.
+ */
+void rpc_print_diagnostics(void);
+
 #endif // RPC_CLIENT_H

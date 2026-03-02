@@ -11,13 +11,13 @@
 
 #include "task_display.h"
 #include "FreeRTOS.h"
-#include "task.h"
 #include "config/firmware_config.h"
 #include "drivers/display/display.h"
 #include "drivers/display/ws2812.h"
 #include "hardware_config.h"
 #include "middleware/shared_state.h"
 #include "pico/stdlib.h"
+#include "task.h"
 #include <stdio.h>
 
 /**
@@ -48,23 +48,33 @@ static void wheel_color(uint8_t pos, uint8_t *r, uint8_t *g, uint8_t *b) {
 }
 
 /**
- * @brief Converte o status da conexão para uma string legível.
- *
- * @param[in] status Estado da conexão RPC/WiFi.
- * @return const char* String correspondente ao estado.
+ * @brief Formata número com separador de milhar.
  */
-static const char *status_to_text(connection_status_t status) {
+static void format_number(char *buf, size_t size, uint32_t value) {
+  if (value >= 1000000) {
+    snprintf(buf, size, "%lu,%03lu,%03lu",
+             (unsigned long)(value / 1000000),
+             (unsigned long)((value / 1000) % 1000),
+             (unsigned long)(value % 1000));
+  } else if (value >= 1000) {
+    snprintf(buf, size, "%lu,%03lu",
+             (unsigned long)(value / 1000),
+             (unsigned long)(value % 1000));
+  } else {
+    snprintf(buf, size, "%lu", (unsigned long)value);
+  }
+}
+
+/**
+ * @brief Retorna caractere de indicador de status.
+ */
+static char status_indicator(connection_status_t status) {
   switch (status) {
-  case STATUS_ONLINE:
-    return "ONLINE";
-  case STATUS_OFFLINE:
-    return "OFFLINE";
-  case STATUS_CONNECTING:
-    return "CONNECTING";
-  case STATUS_SYNCING:
-    return "SYNCING";
-  default:
-    return "UNKNOWN";
+  case STATUS_ONLINE:     return '*';
+  case STATUS_OFFLINE:    return '!';
+  case STATUS_CONNECTING: return '~';
+  case STATUS_SYNCING:    return '>';
+  default:                return '?';
   }
 }
 
@@ -74,29 +84,37 @@ static const char *status_to_text(connection_status_t status) {
 void task_display(void *param) {
   (void)param;
 
-  char row1[24];
-  char row2[24];
-  char row3[24];
+  char line[24];
+  char score_buf[16];
   uint8_t rainbow_phase = 0;
   uint8_t milestone_glow_ticks = 0;
+  uint32_t turbo_remaining_ms = 0;
 
   while (1) {
-    /* Leitura atômica do estado compartilhado */
-    uint32_t local = shared_state_get_local_score();
-    uint32_t global = shared_state_get_global_score();
-    connection_status_t status = shared_state_get_connection_status();
-    uint32_t pending = shared_state_get_pending_clicks();
+    /* Leitura atômica do estado compartilhado (snapshot consistente) */
+    display_snapshot_t snap;
+    shared_state_get_display_snapshot(&snap);
+
+    uint32_t local = snap.local_score;
+    uint32_t global = snap.global_score;
+    connection_status_t status = snap.status;
+    bool turbo_active = snap.turbo_active;
+
+    /* Flags consumíveis (take) continuam separadas */
     bool led_flash = shared_state_take_led_flash_requested();
     bool milestone = shared_state_take_milestone_triggered();
-    bool turbo_active = shared_state_get_turbo_active();
 
     /* Gerenciamento do tempo de expiração do modo turbo */
+    uint32_t now_ms = to_ms_since_boot(get_absolute_time());
     if (turbo_active) {
-      uint32_t now_ms = to_ms_since_boot(get_absolute_time());
-      uint32_t until_ms = shared_state_get_turbo_until_ms();
-      if ((int32_t)(until_ms - now_ms) <= 0) {
+      uint32_t until_ms = snap.turbo_until_ms;
+      int32_t remaining = (int32_t)(until_ms - now_ms);
+      if (remaining <= 0) {
         shared_state_set_turbo_active(false);
         turbo_active = false;
+        turbo_remaining_ms = 0;
+      } else {
+        turbo_remaining_ms = (uint32_t)remaining;
       }
     }
 
@@ -112,33 +130,73 @@ void task_display(void *param) {
       }
     }
 
-    /* Preparação das linhas de texto para o OLED */
-    snprintf(row1, sizeof(row1), "Node %d: %lu", NODE_ID, (unsigned long)local);
-    snprintf(row2, sizeof(row2), "Global: %lu", (unsigned long)global);
-
-    if (turbo_active) {
-      snprintf(row3, sizeof(row3), "TURBO x3");
-    } else if (status == STATUS_SYNCING) {
-      // [>] = símbolo de "enviando" (Unicode ↻ não funciona no SSD1306)
-      snprintf(row3, sizeof(row3), "[>] SYNCING P:%lu", (unsigned long)pending);
-    } else if (status == STATUS_OFFLINE) {
-      // Formato compacto para display de 128x64 pixels (aprox. 21 chars/linha)
-      snprintf(row3, sizeof(row3), "[o] OFFLINE P:%lu", (unsigned long)pending);
-    } else {
-      snprintf(row3, sizeof(row3), "%s", status_to_text(status));
+    /* Em modo offline/syncing, soma cliques pendentes para feedback visual */
+    uint32_t local_display = local;
+    uint32_t global_display = global;
+    if (status == STATUS_OFFLINE || status == STATUS_SYNCING) {
+      local_display = local + snap.pending_clicks;
+      global_display = global + snap.pending_clicks;
     }
 
-    /* Atualização do Display SSD1306 */
+    /* === RENDERIZAÇÃO DO DISPLAY === */
     display_clear();
-    display_text(0, 0, "Cookie Clicker");
-    display_text(2, 0, row1);
-    display_text(4, 0, row2);
-    display_text(6, 0, row3);
+
+    /* Linha 0: Título + indicador de status */
+    snprintf(line, sizeof(line), "COOKIE CLICKER   [%c]", status_indicator(status));
+    display_text(0, 0, line);
+
+    /* Linha 1: Separador */
+    display_text(1, 0, "--------------------");
+
+    /* Linha 2: Score do nó local */
+    format_number(score_buf, sizeof(score_buf), local_display);
+    snprintf(line, sizeof(line), "Node %d:  %s", NODE_ID, score_buf);
+    display_text(2, 0, line);
+
+    /* Linha 3: Score global */
+    format_number(score_buf, sizeof(score_buf), global_display);
+    snprintf(line, sizeof(line), "Global:  %s", score_buf);
+    display_text(3, 0, line);
+
+    /* Linha 4: Vazia */
+    display_text(4, 0, "");
+
+    /* Linha 5: Separador */
+    display_text(5, 0, "--------------------");
+
+    /* Linha 6: Pending clicks (a enviar) */
+    uint32_t pending_total = snap.pending_clicks;
+    if (status == STATUS_SYNCING) {
+      snprintf(line, sizeof(line), "Enviando: %lu", (unsigned long)snap.syncing_count);
+    } else if (pending_total > 0) {
+      snprintf(line, sizeof(line), "Pendente: %lu", (unsigned long)pending_total);
+    } else {
+      snprintf(line, sizeof(line), "Pendente: 0");
+    }
+    display_text(6, 0, line);
+
+    /* Linha 7: Status ou Turbo */
+    if (turbo_active) {
+      uint32_t turbo_secs = turbo_remaining_ms / 1000;
+      uint8_t bar_fill = (uint8_t)((turbo_remaining_ms * 10) / TURBO_DURATION_MS);
+      if (bar_fill > 10) bar_fill = 10;
+      char bar[12] = "..........";
+      for (uint8_t i = 0; i < bar_fill; i++) bar[i] = '#';
+      snprintf(line, sizeof(line), "TURBO[%s]%lus", bar, (unsigned long)turbo_secs);
+      display_text(7, 0, line);
+    } else if (status == STATUS_OFFLINE) {
+      display_text(7, 0, "!! OFFLINE");
+    } else if (status == STATUS_CONNECTING) {
+      display_text(7, 0, "~~ Conectando...");
+    } else {
+      display_text(7, 0, "");
+    }
+
     display_show();
 
-    /* Atualização da Matriz de LEDs WS2812 (Dígito menos significativo do score local) */
-    uint8_t digit = (uint8_t)(local % 10u);
-    
+    /* Atualização da Matriz de LEDs WS2812 (Dígito do score local) */
+    uint8_t digit = (uint8_t)(local_display % 10u);
+
     if (milestone_glow_ticks > 0) {
       // Brilho dourado para marcos
       led_matrix_draw_number(digit, 20, 14, 0);
@@ -156,8 +214,8 @@ void task_display(void *param) {
     }
 
     /* Indicador de modo OFFLINE nos LEDs */
-    if (status == STATUS_OFFLINE && !turbo_active && milestone_glow_ticks == 0 &&
-        !led_flash) {
+    if (status == STATUS_OFFLINE && !turbo_active &&
+        milestone_glow_ticks == 0 && !led_flash) {
       // Pisca LED central em vermelho fraco (alerta visual discreto)
       static uint32_t offline_frame_count = 0;
       offline_frame_count++;
