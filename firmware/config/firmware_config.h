@@ -14,11 +14,16 @@
 
 /** @name Configurações de Tarefas */
 /** @{ */
-#define CLICK_QUEUE_LEN 64        /**< Profundidade máxima da fila de cliques. */
-#define DISPLAY_PERIOD_MS 50      /**< Intervalo de atualização da interface visual (ms). */
-#define MONITOR_PERIOD_MS 5000    /**< Intervalo de log de telemetria (ms). */
-#define RPC_POLL_PERIOD_MS 100    /**< Latência de resposta da tarefa RPC (ms). */
-#define SCORES_REFRESH_MS 5000    /**< Intervalo de busca de scores globais (ms). */
+#define CLICK_QUEUE_LEN 64 /**< Profundidade máxima da fila de cliques. */
+#define DISPLAY_PERIOD_MS                                                      \
+  50 /**< Intervalo de atualização da interface visual (ms). */
+#define MONITOR_PERIOD_MS 5000 /**< Intervalo de log de telemetria (ms). */
+#define RPC_POLL_PERIOD_MS 100 /**< Latência de resposta da tarefa RPC (ms).  \
+                                */
+#define CYCLE_PERIOD_US                                                        \
+  20000 /**< Período exato do ciclo online da task_rpc (µs). */
+#define SCORES_REFRESH_MS                                                      \
+  5000 /**< Intervalo de busca de scores globais (ms). */
 
 /** @brief Backoff exponencial para retry de registro (ms).
  *  Valores: 1s, 2s, 5s, 10s (máximo). */
@@ -33,8 +38,9 @@
 
 /** @name Regras de Jogo */
 /** @{ */
-#define TURBO_DURATION_MS 10000   /**< Duração do efeito Power-up (ms). */
-#define MILESTONE_GLOW_TICKS 10   /**< Duração do efeito visual de milestone (em ciclos de display). */
+#define TURBO_DURATION_MS 10000 /**< Duração do efeito Power-up (ms). */
+#define MILESTONE_GLOW_TICKS                                                   \
+  10 /**< Duração do efeito visual de milestone (em ciclos de display). */
 /** @} */
 
 #endif /* FIRMWARE_CONFIG_H */
