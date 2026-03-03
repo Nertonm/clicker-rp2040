@@ -68,9 +68,30 @@ else()
     message(FATAL_ERROR "FreeRTOS_Kernel_import.cmake não encontrado em ${FREERTOS_KERNEL_PATH}. Configure FREERTOS_KERNEL_PATH.")
 endif()
 
-# Add executable. Default name is the project name, version 0.1
+# ---------------------------------------------------------------------------
+# Injeta credenciais de WiFi e FALLBACK_SERVER_IP se fornecidas no ambiente.
+# As variáveis CMake resultantes são usadas dentro de add_node_target().
+# ---------------------------------------------------------------------------
+if(DEFINED ENV{WIFI_SSID})
+    set(WIFI_SSID "$ENV{WIFI_SSID}")
+endif()
+if(DEFINED ENV{WIFI_PASSWORD})
+    set(WIFI_PASSWORD "$ENV{WIFI_PASSWORD}")
+endif()
+if(DEFINED ENV{FALLBACK_SERVER_IP})
+    set(FALLBACK_SERVER_IP "$ENV{FALLBACK_SERVER_IP}")
+endif()
 
-add_executable(firmware
+if(DEFINED WIFI_SSID AND DEFINED WIFI_PASSWORD)
+    message(STATUS "Credenciais WiFi configuradas para a rede: ${WIFI_SSID}")
+else()
+    message(WARNING "Credenciais WIFI_SSID e WIFI_PASSWORD não foram fornecidas no build! A conexão WiFi falhará.")
+endif()
+
+# ---------------------------------------------------------------------------
+# Fontes comuns a todos os targets de nó.
+# ---------------------------------------------------------------------------
+set(FIRMWARE_SOURCES
     main.c
     freertos_hooks.c
     middleware/button_handler.c
@@ -90,40 +111,60 @@ add_executable(firmware
     rpc_client.c
 )
 
-if(STRESS_TEST)
-    target_sources(firmware PRIVATE
-        tests/stress_test.c
-    )
-    target_compile_definitions(firmware PRIVATE STRESS_TEST=1)
-    message(STATUS "STRESS_TEST habilitado")
-endif()
+# ---------------------------------------------------------------------------
+# add_node_target(<NODE_NUM>)
+#
+# Cria um target executável "node<NODE_NUM>" com NODE_ID=<NODE_NUM> fixado
+# em tempo de compilação. O binário gerado é nomeado avocado_node<NODE_NUM>.uf2.
+# ---------------------------------------------------------------------------
+function(add_node_target NODE_NUM)
+    set(TARGET_NAME "node${NODE_NUM}")
 
-pico_set_program_name(firmware "firmware")
-pico_set_program_version(firmware "0.1")
+    add_executable(${TARGET_NAME} ${FIRMWARE_SOURCES})
 
-# Generate PIO headers
-pico_generate_pio_header(firmware ${CMAKE_CURRENT_LIST_DIR}/blink.pio)
-pico_generate_pio_header(firmware ${CMAKE_CURRENT_LIST_DIR}/drivers/display/ws2812.pio)
+    # Stress test opcional (herdado da opção global)
+    if(STRESS_TEST)
+        target_sources(${TARGET_NAME} PRIVATE tests/stress_test.c)
+        target_compile_definitions(${TARGET_NAME} PRIVATE STRESS_TEST=1)
+        message(STATUS "${TARGET_NAME}: STRESS_TEST habilitado")
+    endif()
 
-# Modify the below lines to enable/disable output over UART/USB
-pico_enable_stdio_uart(firmware 1)
-pico_enable_stdio_usb(firmware 1)
+    # Nome do programa gravado no cabeçalho UF2
+    pico_set_program_name(${TARGET_NAME} "avocado_node${NODE_NUM}")
+    pico_set_program_version(${TARGET_NAME} "0.1")
 
-# Add the standard library to the build
-# (pico_multicore adicionado para suportar o Core 1)
-target_link_libraries(firmware
+    # Cabeçalhos PIO: gerados apenas uma vez (por node0) para evitar que
+    # o CMake registre múltiplos custom commands produzindo o mesmo arquivo
+    # de saída (blink.pio.h, ws2812.pio.h) — o que causaria erro de configure.
+    # node1 e node2 recebem ${CMAKE_CURRENT_BINARY_DIR} via include abaixo.
+    if(NODE_NUM EQUAL 0)
+        pico_generate_pio_header(${TARGET_NAME} ${CMAKE_CURRENT_LIST_DIR}/blink.pio)
+        pico_generate_pio_header(${TARGET_NAME} ${CMAKE_CURRENT_LIST_DIR}/drivers/display/ws2812.pio)
+    else()
+        # Headers já serão gerados por node0; apenas adiciona o diretório de saída
+        # e declara dependência para garantir ordem de compilação.
+        target_include_directories(${TARGET_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+        add_dependencies(${TARGET_NAME} node0)
+    endif()
+
+    # Saída serial via UART e USB
+    pico_enable_stdio_uart(${TARGET_NAME} 1)
+    pico_enable_stdio_usb(${TARGET_NAME} 1)
+
+    # Bibliotecas do SDK e FreeRTOS
+    target_link_libraries(${TARGET_NAME}
         pico_stdlib
         pico_multicore
-    pico_cyw43_arch_lwip_sys_freertos
-    FreeRTOS-Kernel-Heap4
+        pico_cyw43_arch_lwip_sys_freertos
+        FreeRTOS-Kernel-Heap4
         hardware_i2c
         hardware_pio
         hardware_pwm
         hardware_adc
-)
+    )
 
-# Add the standard include files to the build
-target_include_directories(firmware PRIVATE
+    # Diretórios de include
+    target_include_directories(${TARGET_NAME} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
         ${CMAKE_CURRENT_LIST_DIR}/audio
         ${CMAKE_CURRENT_LIST_DIR}/config
@@ -131,49 +172,54 @@ target_include_directories(firmware PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/middleware
         ${CMAKE_CURRENT_LIST_DIR}/tasks
         ${CMAKE_CURRENT_LIST_DIR}/discovery
-)
-
-
-pico_add_extra_outputs(firmware)
-
-target_compile_definitions(${PROJECT_NAME} PRIVATE
-    DISPLAY_SSD1306=1
-    PICO_HEAP_SIZE=0x14000
-    configTICK_RATE_HZ=1000
-)
-
-# Injeta credenciais de WiFi se fornecidas no build
-if(DEFINED ENV{WIFI_SSID})
-    set(WIFI_SSID "$ENV{WIFI_SSID}")
-endif()
-
-if(DEFINED ENV{WIFI_PASSWORD})
-    set(WIFI_PASSWORD "$ENV{WIFI_PASSWORD}")
-endif()
-
-if(DEFINED WIFI_SSID AND DEFINED WIFI_PASSWORD)
-    target_compile_definitions(firmware PRIVATE
-        WIFI_SSID="${WIFI_SSID}"
-        WIFI_PASSWORD="${WIFI_PASSWORD}"
     )
-    message(STATUS "Credenciais WiFi configuradas para a rede: ${WIFI_SSID}")
-else()
-    message(WARNING "Credenciais WIFI_SSID e WIFI_PASSWORD não foram fornecidas no build! A conexão WiFi falhará.")
-endif()
 
-# Configuração do NODE_ID
-if(DEFINED ENV{NODE_ID})
-    set(NODE_ID "$ENV{NODE_ID}")
-elseif(NOT DEFINED NODE_ID)
-    set(NODE_ID "0") # Fallback default
-endif()
+    # Definições de compilação: flags globais + NODE_ID fixo
+    target_compile_definitions(${TARGET_NAME} PRIVATE
+        DISPLAY_SSD1306=1
+        PICO_HEAP_SIZE=0x14000
+        configTICK_RATE_HZ=1000
+        NODE_ID=${NODE_NUM}
+    )
 
-target_compile_definitions(firmware PRIVATE
-    NODE_ID=${NODE_ID}
-)
-if(DEFINED FALLBACK_SERVER_IP)
-    target_compile_definitions(firmware PRIVATE FALLBACK_SERVER_IP="${FALLBACK_SERVER_IP}")
-    message(STATUS "Fallback IP configurado como: ${FALLBACK_SERVER_IP}")
-endif()
+    # Credenciais WiFi (injetadas via env/cmake -D)
+    if(DEFINED WIFI_SSID AND DEFINED WIFI_PASSWORD)
+        target_compile_definitions(${TARGET_NAME} PRIVATE
+            WIFI_SSID="${WIFI_SSID}"
+            WIFI_PASSWORD="${WIFI_PASSWORD}"
+        )
+    endif()
 
-message(STATUS "NODE_ID configurado como: ${NODE_ID}")
+    # IP de fallback do servidor RPC (sobrescreve o padrão em rpc_client.c)
+    if(DEFINED FALLBACK_SERVER_IP)
+        target_compile_definitions(${TARGET_NAME} PRIVATE
+            FALLBACK_SERVER_IP="${FALLBACK_SERVER_IP}"
+        )
+    endif()
+
+    # Garante nome exato do arquivo de saída: avocado_node<N>.uf2
+    # IMPORTANTE: deve vir ANTES de pico_add_extra_outputs — o SDK captura
+    # OUTPUT_NAME no momento da chamada e não usa generator expressions.
+    set_target_properties(${TARGET_NAME} PROPERTIES OUTPUT_NAME "avocado_node${NODE_NUM}")
+
+    # Gera .uf2, .elf, .bin, .map, .hex (usa OUTPUT_NAME acima)
+    pico_add_extra_outputs(${TARGET_NAME})
+
+    message(STATUS "Target '${TARGET_NAME}' criado — NODE_ID=${NODE_NUM} → avocado_node${NODE_NUM}.uf2")
+endfunction()
+
+# ---------------------------------------------------------------------------
+# Cria os três targets de nó
+# ---------------------------------------------------------------------------
+add_node_target(0)
+add_node_target(1)
+add_node_target(2)
+
+# Target agregado: cmake --build . --target all_nodes compila os 3 binários
+add_custom_target(all_nodes DEPENDS node0 node1 node2)
+
+# ---------------------------------------------------------------------------
+# Compatibilidade com a extensão VS Code do Pico SDK.
+# 'firmware' é tratado como alias de node0 — sem código duplicado.
+# ---------------------------------------------------------------------------
+add_executable(firmware ALIAS node0)

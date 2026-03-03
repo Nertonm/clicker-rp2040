@@ -39,3 +39,9 @@ Thumbs.db
 firmware/blink.pio.h
 server/avocado.db
 server/avocado.db
+
+# Credenciais locais — nunca commitadas
+firmware/config/secrets.h
+
+# Artefatos de build e distribuição
+firmware/dist/

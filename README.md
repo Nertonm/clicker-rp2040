@@ -50,18 +50,75 @@ sincroniza quando o servidor voltar, sem perder nenhum evento.
 
 ---
 
-## Compilação do firmware
+## Build e Gravação das Placas
 
-O firmware é compilado usando CMake. Certifique-se de que o Pico SDK está configurado.
-As credenciais de rede não ficam salvas no código. Você deve passá-las como parâmetros para o CMake durante a configuração:
+### Pré-requisitos
+
+| Dependência | Verificação |
+|-------------|-------------|
+| `PICO_SDK_PATH` definido no ambiente | `echo $PICO_SDK_PATH` |
+| `cmake` ≥ 3.13 | `cmake --version` |
+| `arm-none-eabi-gcc` | `arm-none-eabi-gcc --version` |
+
+### Build via script (recomendado)
 
 ```bash
-mkdir build && cd build
-cmake -DWIFI_SSID="NomeDaSuaRede" -DWIFI_PASSWORD="SenhaDaSuaRede" ..
-cmake --build . -j4
+cd clicker-rp2040
+WIFI_SSID="MinhaRede" \
+WIFI_PASSWORD="senha123" \
+FALLBACK_SERVER_IP="192.168.0.10" \
+./firmware/build_all.sh
 ```
 
-Isso gera o arquivo `firmware.uf2`. Grave na placa segurando BOOTSEL ao conectar via USB.
+O script cria `firmware/dist/` com os três binários e imprime o SHA256 de cada um.
+
+### Build manual (target individual)
+
+```bash
+cd firmware
+mkdir -p build && cd build
+cmake .. -DPICO_BOARD=pico_w \
+         -DWIFI_SSID="MinhaRede" \
+         -DWIFI_PASSWORD="senha123" \
+         -DFALLBACK_SERVER_IP="192.168.0.10"
+
+# Compila tudo:
+cmake --build . --target all_nodes
+
+# Ou apenas um nó (útil durante apresentação):
+cmake --build . --target node1   # → avocado_node1.uf2
+```
+
+### Build local com secrets.h
+
+Copie o template e preencha suas credenciais — **nunca commite este arquivo**:
+
+```bash
+cp firmware/config/secrets.h.template firmware/config/secrets.h
+# edite firmware/config/secrets.h com WIFI_SSID, WIFI_PASSWORD, FALLBACK_SERVER_IP
+cmake ..   # sem -D; credenciais vêm de secrets.h
+cmake --build . --target all_nodes
+```
+
+### Mapeamento placa → arquivo
+
+| Arquivo `.uf2` | Placa | Identificação |
+|----------------|-------|---------------|
+| `avocado_node0.uf2` | Placa 0 | Etiqueta NODE-0 ou número de série [preencher] |
+| `avocado_node1.uf2` | Placa 1 | Etiqueta NODE-1 ou número de série [preencher] |
+| `avocado_node2.uf2` | Placa 2 | Etiqueta NODE-2 ou número de série [preencher] |
+
+### Gravação
+
+1. Segure **BOOTSEL** ao conectar a placa via USB — ela aparece como drive `RPI-RP2`
+2. Copie o `.uf2` correspondente para o drive
+3. A placa reinicia automaticamente com o firmware gravado
+
+```bash
+# Exemplo Linux (ajuste /media/$USER/RPI-RP2):
+cp firmware/dist/avocado_node0.uf2 /media/$USER/RPI-RP2/
+```
+
 
 ---
 
