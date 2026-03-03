@@ -24,7 +24,7 @@
 #define CYCLE_PERIOD_US                                                        \
   20000 /**< Período exato do ciclo online da task_rpc (µs). */
 #define SCORES_REFRESH_MS                                                      \
-  5000 /**< Intervalo de busca de scores globais (ms). */
+  2000 /**< Intervalo de busca de scores globais (ms). */
 #define HEARTBEAT_INTERVAL_US                                                  \
   30000000ULL /**< Intervalo de heartbeat ao servidor (30 s em µs). */
 

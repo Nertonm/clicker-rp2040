@@ -9,8 +9,8 @@ from infra.logger import (
 RATE_LIMIT = 50
 MILESTONES = [100, 500, 1000, 5000, 10000]
 
-# TTL para cache de idempotência do sync_offline (em segundos)
-_SYNC_IDEMPOTENCY_TTL_S = 300  # 5 minutos
+# TTL para cache de idempotência (em segundos)
+_IDEMPOTENCY_TTL_S = 300  # 5 minutos
 
 class GameManager():
     def __init__(self, node_registry, game_repo, lamport_clock, lock=None, notifier=None):
@@ -23,8 +23,9 @@ class GameManager():
         self.lock = lock
         self.notifier = notifier  # backward compat — sobrescrito por main.py
         self._event_notifier = None  # typed notifier — set via set_notifier()
-        # Idempotência de sync_offline: {(node_id, lamport_ts): (timestamp, response)}
+        # Idempotência: {(node_id, lamport_ts): (timestamp, response)}
         self._processed_syncs: dict = {}
+        self._processed_clicks: dict = {}
 
     def set_notifier(self, fn):
         """Injeta callable tipado: async(event_type: str, payload_json: str)."""
@@ -91,15 +92,25 @@ class GameManager():
 
     async def _add_clicks_logic(self, node_id, clicks, lamport_ts):
         now = time.time()
-        
+
+        # Idempotência: evita contagem dupla se o nó reenviar o mesmo add_clicks
+        # (ex: TCP timeout no recv — o firmware reenvia com mesmo lamport_ts)
+        click_key = (node_id, lamport_ts)
+        self._evict_old_clicks(now)
+        if click_key in self._processed_clicks:
+            _, cached_response = self._processed_clicks[click_key]
+            log_normal("[GAME]", "add_clicks_duplicado_ignorado",
+                       node=node_id, lamport_ts=lamport_ts, clicks=clicks)
+            return cached_response
+
         # Sincronização causal (Lamport)
         last_ts = await self.lamport_clock.get_last_by_node(node_id)
         if lamport_ts <= last_ts:
             curr_lamport = await self.lamport_clock.update(node_id, lamport_ts)
             # Persiste a violação para auditoria
             await self.game_repo.insert_lamport_violation(
-                node_id, 
-                received_ts=lamport_ts, 
+                node_id,
+                received_ts=lamport_ts,
                 server_ts=last_ts
             )
             metric_inc("lamport_violations")
@@ -107,7 +118,10 @@ class GameManager():
                       node=node_id, received_ts=lamport_ts,
                       server_ts=last_ts, new_ts=curr_lamport,
                       total_violations=get_metrics().get("lamport_violations", "?"))
-            return {"error": "LAMPORT_VIOLATION", "lamport_ts": curr_lamport}
+            error_response = {"error": "LAMPORT_VIOLATION", "lamport_ts": curr_lamport}
+            # Cacheia resposta de erro para evitar múltiplas inserções de violação no banco
+            self._processed_clicks[click_key] = (now, error_response)
+            return error_response
 
         node = self._get_node_data(node_id)
         
@@ -214,6 +228,9 @@ class GameManager():
             "milestone": len(milestones_reached) > 0,
             "milestone_value": milestones_reached[-1] if milestones_reached else None
         }
+
+        # Registra resposta para idempotência (TTL de 5 min)
+        self._processed_clicks[click_key] = (now, response)
         return response
 
     async def sync_offline(self, node_id, accumulated_clicks, lamport_ts):
@@ -361,9 +378,16 @@ class GameManager():
         return response
 
     def _evict_old_syncs(self, now: float):
-        """Remove entradas expiradas do cache de idempotência."""
+        """Remove entradas expiradas do cache de idempotência de sync_offline."""
         expired = [k for k, (ts, _) in self._processed_syncs.items()
-                   if now - ts > _SYNC_IDEMPOTENCY_TTL_S]
+                   if now - ts > _IDEMPOTENCY_TTL_S]
         for k in expired:
             del self._processed_syncs[k]
+
+    def _evict_old_clicks(self, now: float):
+        """Remove entradas expiradas do cache de idempotência de add_clicks."""
+        expired = [k for k, (ts, _) in self._processed_clicks.items()
+                   if now - ts > _IDEMPOTENCY_TTL_S]
+        for k in expired:
+            del self._processed_clicks[k]
 

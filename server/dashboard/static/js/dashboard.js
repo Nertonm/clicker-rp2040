@@ -32,6 +32,47 @@ const el = {
 let prevScore = 0;
 let prevEventIds = new Set();
 
+// ===== Abacates caindo =====
+const avocadoSVG = `
+<svg viewBox="0 0 100 130" width="100%" height="100%">
+    <ellipse cx="50" cy="70" rx="40" ry="55" fill="#8bc34a"/>
+    <ellipse cx="50" cy="70" rx="32" ry="45" fill="#c5e1a5"/>
+    <circle cx="50" cy="80" r="18" fill="#8d6e63"/>
+    <ellipse cx="44" cy="76" rx="3" ry="4" fill="#5d4037"/>
+    <ellipse cx="56" cy="76" rx="3" ry="4" fill="#5d4037"/>
+    <circle cx="45" cy="75" r="1.5" fill="white"/>
+    <circle cx="57" cy="75" r="1.5" fill="white"/>
+    <path d="M 44 86 Q 50 92 56 86" stroke="#5d4037" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <ellipse cx="50" cy="18" rx="8" ry="15" fill="#66bb6a" transform="rotate(-15 50 18)"/>
+</svg>`;
+
+function spawnFallingAvocado() {
+    const avocado = document.createElement('div');
+    avocado.className = 'falling-avocado';
+    avocado.innerHTML = avocadoSVG;
+
+    // Posicao horizontal aleatoria
+    avocado.style.left = Math.random() * (window.innerWidth - 40) + 'px';
+
+    // Duracao aleatoria entre 2s e 4s
+    const duration = 2 + Math.random() * 2;
+    avocado.style.animationDuration = duration + 's';
+
+    document.body.appendChild(avocado);
+
+    // Remove apos a animacao
+    setTimeout(() => avocado.remove(), duration * 1000);
+}
+
+function spawnAvocadosForClicks(clickCount) {
+    // Limita a quantidade para nao sobrecarregar (max 10 por batch)
+    const count = Math.min(clickCount, 10);
+    for (let i = 0; i < count; i++) {
+        // Delay escalonado para efeito de "chuva"
+        setTimeout(() => spawnFallingAvocado(), i * 100);
+    }
+}
+
 // ===== Mensagens misticas =====
 const messages = [
     "Os abacates guardam a sabedoria dos cliques antigos...",
@@ -157,6 +198,12 @@ function updateDashboard(data) {
     const score = data.global_score || 0;
 
     if (score !== prevScore) {
+        // Spawna abacates caindo baseado na diferenca de score
+        const diff = score - prevScore;
+        if (diff > 0) {
+            spawnAvocadosForClicks(diff);
+        }
+
         el.globalScore.textContent = score.toLocaleString('pt-BR');
         el.globalScore.classList.remove('pulse');
         void el.globalScore.offsetWidth;

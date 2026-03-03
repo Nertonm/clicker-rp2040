@@ -387,3 +387,28 @@ footer {
 ::-webkit-scrollbar-track { background: #f5f5f5; border-radius: 10px; }
 ::-webkit-scrollbar-thumb { background: #ce93d8; border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: #ba68c8; }
+
+/* ====== ABACATES CAINDO ====== */
+.falling-avocado {
+    position: fixed;
+    top: -60px;
+    width: 40px;
+    height: 50px;
+    pointer-events: none;
+    z-index: 1000;
+    animation: avocadoFall linear forwards;
+}
+
+@keyframes avocadoFall {
+    0% {
+        transform: translateY(0) rotate(0deg);
+        opacity: 1;
+    }
+    70% {
+        opacity: 1;
+    }
+    100% {
+        transform: translateY(calc(100vh + 100px)) rotate(720deg);
+        opacity: 0;
+    }
+}
