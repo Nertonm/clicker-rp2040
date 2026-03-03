@@ -177,6 +177,8 @@ wifi_connected:
   TickType_t last_register_attempt = 0;
   uint8_t consecutive_rpc_failures = 0;
   uint8_t consecutive_register_failures = 0;
+  uint64_t last_heartbeat_us =
+      0; /* Timestamp do último heartbeat bem-sucedido */
 
   /* Backoff exponencial para retry de registro (definido em firmware_config.h)
    */
@@ -233,6 +235,8 @@ wifi_connected:
           registered = true;
           consecutive_rpc_failures = 0;
           consecutive_register_failures = 0;
+          last_heartbeat_us = time_us_64(); /* Inicia contador do heartbeat a
+                                               partir do registro */
 
           /* --- Início da lógica de sincronização --- */
 
@@ -365,24 +369,51 @@ wifi_connected:
               lamport_update((uint32_t)click_res.lamport_ts);
               /* Violação de Lamport não conta como falha de rede */
             } else {
-              /* Falha de rede (timeout, desconexão, parse error, etc) */
+              /* Falha de rede (timeout, desconexão, parse error, etc).
+               * O check de consecutive >= 3 foi movido para bloco independente
+               * após o heartbeat, para cobrir também falhas sem cliques. */
               consecutive_rpc_failures++;
-              printf("[RPC] Falha #%d/3\n", consecutive_rpc_failures);
-
-              if (consecutive_rpc_failures >= 3) {
-                printf(
-                    "[RPC] 3 falhas consecutivas, entrando em modo OFFLINE\n");
-                /* Cliques já foram restaurados em pending_clicks acima */
-                shared_state_set_connection_status(STATUS_OFFLINE);
-                consecutive_rpc_failures = 0;
-                registered = false;
-                LOG_NORMAL("[RPC]", "transicao_offline pending_clicks=%lu",
-                           (unsigned long)shared_state_get_pending_clicks());
-              }
+              LOG_NORMAL("[RPC]", "Falha RPC #%d/3", consecutive_rpc_failures);
             }
           }
         }
       }
+    }
+
+    /* Heartbeat periódico: reenvia rpc_register_node a cada 30 s para manter
+     * o nó ACTIVE no NodeRegistry. Verificado a cada ciclo de 20 ms via
+     * time_us_64() — sem timer de hardware separado (conforme Nota Técnica da
+     * US). Posição: após processamento de cliques e antes do refresh de placar.
+     */
+    if (shared_state_get_connection_status() == STATUS_ONLINE) {
+      uint64_t hb_now = time_us_64();
+      if ((hb_now - last_heartbeat_us) >= HEARTBEAT_INTERVAL_US) {
+        RpcSimpleResult hb_result = rpc_register_node((uint8_t)NODE_ID);
+        if (hb_result.success) {
+          last_heartbeat_us = time_us_64();
+          LOG_NORMAL("[HEARTBEAT]", "HEARTBEAT SENT node_id=%d", NODE_ID);
+        } else {
+          /* Falha de heartbeat: incrementa contador compartilhado.
+           * A transição para OFFLINE é avaliada no bloco independente abaixo,
+           * que cobre tanto falhas de cliques quanto de heartbeat. */
+          consecutive_rpc_failures++;
+          LOG_NORMAL("[HEARTBEAT]", "HEARTBEAT FAILED consecutivas=%d",
+                     consecutive_rpc_failures);
+        }
+      }
+    }
+
+    /* Avalia transição para OFFLINE independentemente de pending_clicks.
+     * Garante que falhas de heartbeat (sem cliques) também transitam o nó
+     * para OFFLINE após 3 falhas consecutivas. */
+    if (consecutive_rpc_failures >= 3) {
+      LOG_NORMAL("[RPC]",
+                 "3 falhas consecutivas — transicao OFFLINE "
+                 "pending_clicks=%lu",
+                 (unsigned long)shared_state_get_pending_clicks());
+      shared_state_set_connection_status(STATUS_OFFLINE);
+      consecutive_rpc_failures = 0;
+      registered = false;
     }
 
     /* Atualização Periódica do Placar Global.
