@@ -1,0 +1,15 @@
+{
+    "cmake.sourceDirectory": "/home/nerton/TRABALHO/clicker-rp2040/firmware",
+    "cmake.configureSettings": {
+        "CMAKE_C_COMPILER": "/usr/bin/arm-none-eabi-gcc",
+        "CMAKE_CXX_COMPILER": "/usr/bin/arm-none-eabi-g++",
+        "CMAKE_ASM_COMPILER": "/usr/bin/arm-none-eabi-gcc",
+        "PICO_SDK_PATH": "/home/nerton/TRABALHO/.pico-sdk/sdk/2.2.0",
+        "FREERTOS_KERNEL_PATH": "/home/nerton/TRABALHO/clicker-rp2040/third_party/FreeRTOS-Kernel"
+    },
+    "cmake.configureEnvironment": {
+        "CC": "/usr/bin/arm-none-eabi-gcc",
+        "CXX": "/usr/bin/arm-none-eabi-g++",
+        "PICO_GCC_TRIPLE": "arm-none-eabi"
+    }
+}

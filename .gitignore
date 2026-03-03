@@ -1,55 +1,47 @@
-# Prerequisites
-*.d
+# Build Directories
+build/
+dist/
+bin/
+obj/
+.cache/
 
-# Object files
-*.o
-*.ko
-*.obj
+# Raspberry Pi Pico / Pico SDK
+firmware/build/
 *.elf
-
-# Linker output
-*.ilk
+*.uf2
+*.bin
 *.map
-*.exp
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
-
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
-
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
 *.hex
+*.pio.h
+compile_commands.json
+.pico-sdk/
 
-# Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
+# Python (used in Pico build scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
 
-# debug information files
-*.dwo
+# OS Specific
+.DS_Store
+Thumbs.db
+
+# Project Specific
+firmware/blink.pio.h
+server/avocado.db
+server/avocado.db
+
+# Credenciais locais — nunca commitadas
+firmware/config/secrets.h
+
+# Artefatos de build e distribuição
+firmware/dist/
