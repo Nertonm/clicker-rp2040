@@ -236,45 +236,35 @@ class GameManager():
         node = self._get_node_data(node_id)
         node["score"] = db_node["score"]
         
-        # ============================================================
-        # RATE LIMITING PROPORCIONAL AO TEMPO OFFLINE
-        # ============================================================
-        
-        # Calcula tempo offline baseado em last_seen (timestamp Unix)
+        # Rate Limiting proporcional ao tempo offline
+        # last_seen == 0 significa nó nunca registrado (retorno padrão do repositório);
+        # trata da mesma forma que None: offline_seconds = 0 para evitar aceitação irrestrita.
         last_seen = db_node.get("last_seen")
-        
-        if last_seen is None:
-            # Primeira sincronização deste nó: aceita tudo
-            accepted = accumulated_clicks
-            rejected = 0
-            log_normal("[SYNC]", "primeira_sync_aceita_tudo",
-                       node=node_id, accepted=accepted)
+
+        if not last_seen:  # cobre None e 0 (nó nunca visto)
+            offline_seconds = 0
+            log_normal("[SYNC]", "no_first_sync_offline_zero",
+                       node=node_id, accumulated=accumulated_clicks)
         else:
             offline_seconds = max(0, now - last_seen)
-            # Limite máximo: RATE_LIMIT clicks/s × tempo offline
-            max_allowed = int(RATE_LIMIT * offline_seconds)
 
-            # Aceita apenas o mínimo entre cliques enviados e limite calculado
-            accepted = min(accumulated_clicks, max_allowed)
-            rejected = accumulated_clicks - accepted
+        max_allowed = int(RATE_LIMIT * offline_seconds)
+        accepted    = min(accumulated_clicks, max_allowed)
+        rejected    = accumulated_clicks - accepted
 
-            if rejected > 0:
-                metric_inc("rate_limited_clicks", rejected)
-                log_normal("[SYNC]", "rate_limit_sync",
-                           node=node_id,
-                           accumulated=accumulated_clicks,
-                           accepted=accepted, rejected=rejected,
-                           offline_s=round(offline_seconds, 1),
-                           max_allowed=max_allowed)
-            else:
-                log_normal("[SYNC]", "sync_aceita_tudo",
-                           node=node_id, accepted=accepted,
-                           offline_s=round(offline_seconds, 1))
-        
-        # ============================================================
-        # FIM DO RATE LIMITING
-        # ============================================================
-        
+        if rejected > 0:
+            metric_inc("rate_limited_clicks", rejected)
+            log_normal("[SYNC]", "rate_limit_sync",
+                       node=node_id,
+                       accumulated=accumulated_clicks,
+                       accepted=accepted, rejected=rejected,
+                       offline_s=round(offline_seconds, 1),
+                       max_allowed=max_allowed)
+        else:
+            log_normal("[SYNC]", "sync_aceita_tudo",
+                       node=node_id, accepted=accepted,
+                       offline_s=round(offline_seconds, 1))
+
         # Atualização de scores
         before_global = self.global_score
         node["score"] += accepted
