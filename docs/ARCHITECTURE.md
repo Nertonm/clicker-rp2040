@@ -1,4 +1,4 @@
-# ARCHITECTURE.md — Arquitetura do Sistema Clicker RP2040
+# ARCHITECTURE.md - Arquitetura do Sistema Clicker RP2040
 
 ## Visão Geral do Sistema
 
@@ -148,7 +148,7 @@
     -> loop: await registry.mark_inactive(); await asyncio.sleep(10)
 13. start_debug_server(port=8090) [endpoint /debug]
 14. async with rpc_server: await rpc_server.serve_forever()
-    [servidor pronto — handle_client() é invocado para cada conexão TCP]
+    [servidor pronto - handle_client() é invocado para cada conexão TCP]
 ```
 
 ---
@@ -272,14 +272,3 @@ Heartbeat complementar (deteccao de falha pelo servidor):
   - O servidor marca nos como INACTIVE apos 60s sem heartbeat (mark_inactive(), rodado a cada 10s)
   - O firmware envia rpc_register_node a cada 30s (HEARTBEAT_INTERVAL_US=30000000)
     enquanto STATUS_ONLINE; falhas contam para consecutive_rpc_failures
-```
-
----
-
-## Inconsistencias Encontradas
-
-1. **`README.md` menciona "Core 1"** (linha 26: "Core 0: Inicialização... loop principal") mas o firmware usa FreeRTOS no Core 0. Nao ha chamadas a `pico_multicore` ou `multicore_launch_core1` no codigo. A biblioteca `pico_multicore` consta no `CMakeLists.txt` mas nao e usada.
-
-2. **`test_rpc.py` passa `node_id` como string** (`f"node_{client_id}"`) mas `register_node` no `NodeRegistry` e `GameManager` usa inteiros. A linha `assert f"node_{client_id}" in resp.get("result", [])` provavelmente falha em runtime.
-
-3. **`rpc_client.c` (funcao `parse_activate_powerup_response`)**: quando o servidor retorna `ALREADY_ACTIVE`, o firmware fixa `powerup_remaining_s = 10` em vez de parsear do JSON. O servidor nao inclui `time_remaining` nessa resposta, entao o hardcode e necessario, mas fica divergente do que o README descreve.

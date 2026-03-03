@@ -1,4 +1,4 @@
-# OPERATIONS.md — Guia de Operacao
+# OPERATIONS.md - Guia de Operacao
 
 ---
 
@@ -94,9 +94,9 @@ O script gera os binarios em `firmware/dist/`:
 
 | Variavel de ambiente | Macro C resultante | Onde usada |
 |---------------------|-------------------|------------|
-| `WIFI_SSID` | `WIFI_SSID` | `net_config.h` / `task_rpc.c` — passa para `cyw43_arch_wifi_connect_timeout_ms` |
-| `WIFI_PASSWORD` | `WIFI_PASSWORD` | `net_config.h` / `task_rpc.c` — idem |
-| `FALLBACK_SERVER_IP` | `FALLBACK_SERVER_IP` | `rpc_client.c` — IP de fallback se UDP discovery falhar |
+| `WIFI_SSID` | `WIFI_SSID` | `net_config.h` / `task_rpc.c` - passa para `cyw43_arch_wifi_connect_timeout_ms` |
+| `WIFI_PASSWORD` | `WIFI_PASSWORD` | `net_config.h` / `task_rpc.c` - idem |
+| `FALLBACK_SERVER_IP` | `FALLBACK_SERVER_IP` | `rpc_client.c` - IP de fallback se UDP discovery falhar |
 
 ### Build manual (target individual)
 
@@ -253,7 +253,7 @@ Para confirmar que cada servico iniciou corretamente:
 | Dashboard principal | 8080 | HTTP GET `/` | Interface web com scores, nos, eventos ultimos 20 |
 | Dashboard violations | 8080 | HTTP GET `/api/violations` | Ultimas 100 violacoes de Lamport em JSON |
 | WebSocket stream | 8081 | WebSocket | Push de eventos em tempo real (`full_state`, `click_batch`, `milestone`, `node_status_change`, `powerup_activated`, `sync_complete`) |
-| Debug HTTP | 8090 | HTTP GET `/debug` | [arquivo `infra/debug_server.py` referenciado em `main.py`, nao lido — arquivo adicional] |
+| Debug HTTP | 8090 | HTTP GET `/debug` | [arquivo `infra/debug_server.py` referenciado em `main.py`, nao lido - arquivo adicional] |
 
 ### Log estruturado
 
@@ -322,15 +322,3 @@ Emitidas via UART a cada 500 ciclos de task_rpc e a cada 5 ciclos de task_monito
 # Monitor geral (task_monitor.c):
 [STATS] queue=0 heap=65432 min_heap=62000 pending=0 irq=150/152 lamport=253 status=ONLINE
 ```
-
----
-
-## Inconsistencias Encontradas
-
-1. **`server/infra/debug_server.py`** e referenciado em `server/app/main.py` (`from infra.debug_server import start_debug_server`) mas **nao estava disponivel para leitura**. O endpoint `/debug` na porta 8090 depende deste arquivo.
-
-2. **`test_rpc.py` usa `node_id` como string** (`f"node_{client_id}"`) mas o codigo de producao usa inteiros. A linha `assert f"node_{client_id}" in resp.get("result", [])` provavelmente falha porque `get_active_nodes` retorna lista de dicts, nao lista de strings.
-
-3. **`README.md` menciona `firmware/build_all.sh`** mas o arquivo nao foi confirmado como existente no repositorio nesta leitura. O procedimento de build manual via cmake esta documentado acima.
-
-4. **`README.md` menciona `docs/dashboard_guide.md`** como guia completo, mas o arquivo existe no `docs/` com apenas 1,7 KB.

@@ -25,8 +25,8 @@
 
 ```text
 Priority 5: lwIP/CYW43 task (SDK)
-Priority 3: task_buttons   -> consome pending_clicks e publica na queue_clicks
-Priority 2: task_rpc       -> registra nó, envia batches, ativa power-up e sincroniza offline
+Priority 3: task_buttons   -> lê pending_clicks para gerar feedback (buzzer/LED) sem consumi-los
+Priority 2: task_rpc       -> registra nó, consome pending_clicks nativamente, envia batches e sincroniza
 Priority 1: task_display   -> renderiza estado no OLED e na matriz WS2812
 Priority 1: task_monitor   -> diagnóstico de heap/fila/conectividade
 ```
@@ -35,16 +35,15 @@ Priority 1: task_monitor   -> diagnóstico de heap/fila/conectividade
 
 | Recurso | Mecanismo | Escrita principal | Leitura principal |
 |---------|-----------|-------------------|-------------------|
-| `queue_clicks` | FreeRTOS Queue | `task_buttons` | `task_rpc` |
-| `shared_state` | spinlock | IRQs + `task_buttons` + `task_rpc` | `task_display`/`task_monitor` |
+| `shared_state` | spinlock | IRQs + `task_rpc` | `task_display`/`task_monitor`/`task_buttons` |
 | Lamport clock | critical section | `task_rpc` | `task_rpc` |
 
 ### Fluxo de dados
 
 1. IRQ de botão incrementa `pending_clicks` no shared state.
-2. `task_buttons` faz take de `pending_clicks`, aplica feedback local imediato (score/flash) e milestone em múltiplos de 10, e envia batch para `queue_clicks`.
+2. `task_buttons` detecta crescimento em `pending_clicks` e dispara beep curto e alerta visual (LED) imediatamente.
 3. IRQ do botão B marca pedido de turbo em `shared_state`.
-4. `task_rpc` recebe batch, chama `rpc_add_clicks`, atualiza Lamport e scores.
+4. `task_rpc` consome diretamente de `pending_clicks`, chama `rpc_add_clicks`, atualiza Lamport e scores.
 5. `task_rpc` processa pedido de turbo com `rpc_activate_powerup` (ou fallback local offline).
 6. `task_rpc` chama `rpc_poll` para drenar fila offline quando reconectar.
 7. `task_display` lê `shared_state` e atualiza OLED + matriz WS2812.

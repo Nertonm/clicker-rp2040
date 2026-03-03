@@ -41,7 +41,7 @@ void test_add_clicks_offline() {
     RpcClickResult r = rpc_add_clicks(5, 10);
     
     assert(r.success == false);
-    assert(r.error_code == RPC_OFFLINE_QUEUED);
+    assert(r.error_code == RPC_DISCONNECTED);
     printf("✅ Enfileiramento offline OK\n");
     
     // Religar servidor e aguardar 2s
