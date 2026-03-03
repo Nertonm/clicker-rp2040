@@ -19,11 +19,11 @@ As tarefas são criadas no `main.c` com as seguintes prioridades (maior número 
 
 ## Comunicação entre Tasks
 
-### Fila de Cliques (`queue_clicks`)
-A comunicação principal entre a entrada do usuário e a rede é feita via `xQueue`:
-- **Produtor:** `task_buttons` envia mensagens `click_msg_t` quando novos cliques são detectados.
-- **Consumidor:** `task_rpc` consome as mensagens e as envia ao servidor via TCP.
-- **Tamanho:** 32 mensagens (evita perda em picos de atividade).
+### Estado Distribuído (`shared_state`)
+A comunicação principal entre a entrada do usuário e a rede é feita via spinlock na RAM:
+- **Produtor:** ISR do botão incrementa `pending_clicks`.
+- **Consumidor:** `task_rpc` consome os cliques diretamente para enviá-los em batches.
+- **Vantagem:** Evita cópias desnecessárias e permite rollback limpo (restaurar de volta na variável) se a rede cair.
 
 ## Sincronização e Thread-Safety
 

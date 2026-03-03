@@ -1,4 +1,4 @@
-# DISTRIBUTED_SYSTEMS.md — Características de Sistemas Distribuídos
+# DISTRIBUTED_SYSTEMS.md - Características de Sistemas Distribuídos
 
 Cada seção cobre uma característica de sistemas distribuídos: o conceito, como está implementado no código, os arquivos relevantes e como demonstrar na apresentação.
 
@@ -52,16 +52,16 @@ Campos obrigatorios: `jsonrpc` (sempre `"2.0"`), `method`, `params` (objeto ou l
 |--------|---------|-----------|----------------|
 | `register_node` | `NodeRegistry.register_node` | `node_id`, `ip` (injetado pelo servidor) | `None` (resultado vazio indica sucesso) |
 | `heartbeat` | `NodeRegistry.heartbeat` | `node_id` | `None` |
-| `get_active_nodes` | `NodeRegistry.get_active_nodes` | — | lista de `{node_id, ip, status, last_seen}` |
+| `get_active_nodes` | `NodeRegistry.get_active_nodes` | - | lista de `{node_id, ip, status, last_seen}` |
 | `add_clicks` | `GameManager.add_clicks` | `node_id`, `clicks`, `lamport_ts` | `{status, accepted_clicks, rejected_clicks, global_score, node_score, lamport_ts, milestone, milestone_value}` |
 | `sync_offline` | `GameManager.sync_offline` | `node_id`, `accumulated_clicks`, `lamport_ts` | mesmo que `add_clicks` + `local_score`, `node_scores` |
 | `activate_powerup` | `GameManager.activate_powerup` | `node_id` | `{status, time_remaining}` ou `{error: "ALREADY_ACTIVE"}` |
-| `get_nodes_scores` | `GameRepository.get_nodes_scores` | — | lista de `{node_id, local_score}` ordenada por score DESC |
+| `get_nodes_scores` | `GameRepository.get_nodes_scores` | - | lista de `{node_id, local_score}` ordenada por score DESC |
 | `set_processing_delay` | `RPCDispatcher.set_processing_delay` | `delay_ms` | `{status, new_delay}` |
 
 ### Arquivos de referência
-- `firmware/rpc_client.c` — implementacao do cliente
-- `server/infra/rpc_server.py` — `RPCDispatcher` e `handle_client`
+- `firmware/rpc_client.c` - implementacao do cliente
+- `server/infra/rpc_server.py` - `RPCDispatcher` e `handle_client`
 
 ### Como demonstrar
 Abrir um terminal e enviar um JSON-RPC manualmente:
@@ -107,9 +107,9 @@ Definida em `server/app/config.py`, injeta um `await asyncio.sleep(delay_ms / 10
 Tambem pode ser alterada em tempo real via RPC: `set_processing_delay(delay_ms=500)`.
 
 ### Arquivos de referência
-- `server/infra/rpc_server.py` — `handle_client`, `RPCDispatcher.dispatch`
-- `server/app/config.py` — `SIMULATE_PROCESSING_DELAY_MS`
-- `server/domain/game_manager.py` — `async with self.lock`
+- `server/infra/rpc_server.py` - `handle_client`, `RPCDispatcher.dispatch`
+- `server/app/config.py` - `SIMULATE_PROCESSING_DELAY_MS`
+- `server/domain/game_manager.py` - `async with self.lock`
 
 ### Como demonstrar
 ```bash
@@ -119,7 +119,7 @@ Com 3 placas enviando cliques, o log mostrara `active_connections=3` e cada cham
 
 ---
 
-## 3. Tolerância a Falhas — Circuit Breaker
+## 3. Tolerância a Falhas - Circuit Breaker
 
 ### Requisito conceitual
 O Circuit Breaker monitora falhas consecutivas em uma dependencia remota. Apos atingir um limiar o circuito abre e deixa de chamar a dependencia, evitando cascata. Apos um tempo tenta reconectar.
@@ -152,16 +152,16 @@ O Circuit Breaker monitora falhas consecutivas em uma dependencia remota. Apos a
 | HALF-OPEN (tentando) | `STATUS_CONNECTING` | `false` | 0..N |
 | SYNCING | `STATUS_SYNCING` | `true` (recém registrado) | 0 |
 
-O circuito abre quando `consecutive_rpc_failures >= 3` (verificado apos cada ciclo de 20ms e apos heartbeat). Violacoes de Lamport e rate limit **nao** incrementam o contador — apenas falhas de rede e timeout.
+O circuito abre quando `consecutive_rpc_failures >= 3` (verificado apos cada ciclo de 20ms e apos heartbeat). Violacoes de Lamport e rate limit **nao** incrementam o contador - apenas falhas de rede e timeout.
 
 ### Heartbeat como mecanismo complementar
 
 A cada 30 segundos (`HEARTBEAT_INTERVAL_US = 30000000`) enquanto `STATUS_ONLINE`, o firmware envia `rpc_register_node()` como heartbeat. Uma falha no heartbeat incrementa `consecutive_rpc_failures`. O servidor, independentemente, marca nos como `INACTIVE` apos 60 segundos sem atividade (tarefa `background_tasks()` rodando a cada 10 segundos).
 
 ### Arquivos de referência
-- `firmware/tasks/task_rpc.c` — logica completa do circuit breaker e heartbeat
-- `firmware/config/firmware_config.h` — `RPC_REGISTER_BACKOFF_*`, `HEARTBEAT_INTERVAL_US`
-- `server/domain/node_registry.py` — `mark_inactive()`: timeout de 60s
+- `firmware/tasks/task_rpc.c` - logica completa do circuit breaker e heartbeat
+- `firmware/config/firmware_config.h` - `RPC_REGISTER_BACKOFF_*`, `HEARTBEAT_INTERVAL_US`
+- `server/domain/node_registry.py` - `mark_inactive()`: timeout de 60s
 
 ### Como demonstrar
 1. Iniciar servidor + 3 placas. Aguardar STATUS_ONLINE.
@@ -172,7 +172,7 @@ A cada 30 segundos (`HEARTBEAT_INTERVAL_US = 30000000`) enquanto `STATUS_ONLINE`
 
 ---
 
-## 4. Sincronização — Relógio de Lamport
+## 4. Sincronização - Relógio de Lamport
 
 ### Requisito conceitual
 O relógio de Lamport atribui timestamps a eventos sem precisar de clock global. Se o evento A causou B, entao `L(A) < L(B)`. As regras sao:
@@ -245,15 +245,15 @@ Firmware Node 0          Servidor
 ### Arquivos de referência
 - `firmware/middleware/lamport.c/.h`
 - `server/domain/lamport_clock.py`
-- `server/domain/game_manager.py` — `_add_clicks_logic` (linha 91-105)
-- `server/infra/db.py` — tabela `lamport_violations`
+- `server/domain/game_manager.py` - `_add_clicks_logic` (linha 91-105)
+- `server/infra/db.py` - tabela `lamport_violations`
 
 ### Como demonstrar
 Usar `test_rpc.py` ou `nc` para enviar `add_clicks` com `lamport_ts` decrescente. O servidor rejeita e o log mostra `[LAMPORT] VIOLAÇÃO causal detectada`. O endpoint `/api/violations` da dashboard retorna o historico.
 
 ---
 
-## 5. Descoberta de Serviços — UDP Broadcast
+## 5. Descoberta de Serviços - UDP Broadcast
 
 ### Requisito conceitual
 Os nos nao precisam conhecer previamente o endereco do servidor. A transparencia de localizacao permite que o servidor mude de IP sem recompilacao do firmware.
@@ -287,13 +287,13 @@ Valida que a mensagem comeca com `COOKIE_DISCOVER` e tem formato `partes[1] == "
 O firmware descobre o IP dinamicamente. Se o servidor trocar de IP, basta estar na mesma subnet de broadcast; nao precisa regravar o firmware.
 
 ### Arquivos de referência
-- `firmware/discovery/service_disc.c/.h` — cliente UDP
-- `server/infra/udp_discovery.py` — servidor UDP
-- `firmware/tasks/task_rpc.c` — `setup_network_target()`
+- `firmware/discovery/service_disc.c/.h` - cliente UDP
+- `server/infra/udp_discovery.py` - servidor UDP
+- `firmware/tasks/task_rpc.c` - `setup_network_target()`
 
 ---
 
-## 6. Consistência Eventual — Modelo Offline-First
+## 6. Consistência Eventual - Modelo Offline-First
 
 ### Requisito conceitual
 Com consistencia eventual as operacoes continuam localmente durante particoes de rede. Ao reconectar os estados sao reconciliados e o sistema converge sem perder operacoes validas.
@@ -323,9 +323,9 @@ rejected    = accumulated_clicks - accepted
 **Atencao:** os cliques pendentes vivem so na RAM. Se a placa perder energia os dados sao perdidos; nao ha armazenamento persistente no firmware.
 
 ### Arquivos de referência
-- `firmware/middleware/shared_state.c` — `shared_state_restore_clicks`, `shared_state_take_pending_clicks`
-- `firmware/tasks/task_rpc.c` — bloco offline e sync apos registro
-- `server/domain/game_manager.py` — `_sync_offline_logic`
+- `firmware/middleware/shared_state.c` - `shared_state_restore_clicks`, `shared_state_take_pending_clicks`
+- `firmware/tasks/task_rpc.c` - bloco offline e sync apos registro
+- `server/domain/game_manager.py` - `_sync_offline_logic`
 
 ### Como demonstrar
 1. Com no ONLINE, gerar cliques.

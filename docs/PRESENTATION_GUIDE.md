@@ -1,4 +1,4 @@
-# PRESENTATION_GUIDE.md — Guia de Apresentação
+# PRESENTATION_GUIDE.md - Guia de Apresentação
 
 ---
 
@@ -14,7 +14,7 @@ As próximas seções detalham onde cada requisito está implementado e como dem
 
 ---
 
-## Seção 2: Requisito — Comunicação via RPC (Middleware)
+## Seção 2: Requisito - Comunicação via RPC (Middleware)
 
 ### 2.1 O que o requisito pede
 
@@ -34,14 +34,14 @@ RpcScoreResult  rpc_get_scores(void);
 
 Cada função serializa a requisição em JSON-RPC 2.0, envia via TCP (com retry e backoff internos) e parseia a resposta, retornando uma struct tipada com código de erro semântico.
 
-No servidor, a classe `RPCDispatcher` em `server/infra/rpc_server.py` recebe conexões TCP, parseia o JSON e despacha para o handler registrado conforme o campo `"method"`. Os handlers são métodos de domínio (`GameManager`, `NodeRegistry`, `GameRepository`) — o dispatcher não contém lógica de negócio.
+No servidor, a classe `RPCDispatcher` em `server/infra/rpc_server.py` recebe conexões TCP, parseia o JSON e despacha para o handler registrado conforme o campo `"method"`. Os handlers são métodos de domínio (`GameManager`, `NodeRegistry`, `GameRepository`) - o dispatcher não contém lógica de negócio.
 
 ### 2.3 Evidências no código
 
-- `firmware/rpc_client.c` — assinaturas das 6 funções RPC (linhas ~30-40)
-- `firmware/tasks/task_rpc.c` — chamadas a `rpc_add_clicks()` sem nenhum `#include` de `lwip/sockets.h`
-- `server/infra/rpc_server.py` — `RPCDispatcher.dispatch()` e dicionário `handlers`
-- `docs/API_RPC.md` — schema completo de todos os 8 métodos com exemplos JSON
+- `firmware/rpc_client.c` - assinaturas das 6 funções RPC (linhas ~30-40)
+- `firmware/tasks/task_rpc.c` - chamadas a `rpc_add_clicks()` sem nenhum `#include` de `lwip/sockets.h`
+- `server/infra/rpc_server.py` - `RPCDispatcher.dispatch()` e dicionário `handlers`
+- `docs/API_RPC.md` - schema completo de todos os 8 métodos com exemplos JSON
 
 ### 2.4 Como demonstrar ao vivo
 
@@ -62,7 +62,7 @@ Síncrono do ponto de vista do firmware: `rpc_call_with_retry()` bloqueia até r
 
 ---
 
-## Seção 3: Requisito — Arquitetura N-Camadas
+## Seção 3: Requisito - Arquitetura N-Camadas
 
 ### 3.1 O que o requisito pede
 
@@ -82,9 +82,9 @@ Os imports são unidirecionais: `dashboard` importa `domain`; `domain` importa `
 
 ### 3.3 Evidências no código
 
-- `server/dashboard/state_service.py` — importa `db` (infra) e recebe `GameManager` (domain) via construtor
-- `server/domain/game_manager.py` — linha 4: importa `infra.logger`; linha 21: `self._event_notifier = None` (dashboard injetado)
-- `server/infra/db.py` — nenhum import de `domain` ou `dashboard`
+- `server/dashboard/state_service.py` - importa `db` (infra) e recebe `GameManager` (domain) via construtor
+- `server/domain/game_manager.py` - linha 4: importa `infra.logger`; linha 21: `self._event_notifier = None` (dashboard injetado)
+- `server/infra/db.py` - nenhum import de `domain` ou `dashboard`
 
 ### 3.4 Como demonstrar ao vivo
 
@@ -101,7 +101,7 @@ O dispatcher é infraestrutura de protocolo (aceita conexões TCP, parseia JSON-
 
 ---
 
-## Seção 4: Requisito — Concorrência Event-Driven
+## Seção 4: Requisito - Concorrência Event-Driven
 
 ### 4.1 O que o requisito pede
 
@@ -109,7 +109,7 @@ Servidor capaz de atender múltiplos clientes simultaneamente, usando multithrea
 
 ### 4.2 Como está implementado
 
-O servidor usa `asyncio` com event loop single-threaded. Para cada conexão TCP aceita, `asyncio.start_server()` cria uma corrotina `handle_client` independente. O ponto `await reader.readline()` suspende a corrotina e libera o event loop para processar outras conexões — nenhuma thread adicional é criada.
+O servidor usa `asyncio` com event loop single-threaded. Para cada conexão TCP aceita, `asyncio.start_server()` cria uma corrotina `handle_client` independente. O ponto `await reader.readline()` suspende a corrotina e libera o event loop para processar outras conexões - nenhuma thread adicional é criada.
 
 O `GameManager` usa `asyncio.Lock` para proteger a seção crítica de atualização de `global_score`: sem lock, duas corrotinas intercalariam entre `node["score"] += x` e `await db.update_score()`, causando inconsistência de dados.
 
@@ -117,9 +117,9 @@ A variável `active_connections` em `rpc_server.py` é incrementada/decrementada
 
 ### 4.3 Evidências no código
 
-- `server/infra/rpc_server.py` — `handle_client` como `async def`; contador `active_connections`
-- `server/domain/game_manager.py` — `async with self.lock` antes de `_add_clicks_logic`
-- `server/app/config.py` — `SIMULATE_PROCESSING_DELAY_MS`
+- `server/infra/rpc_server.py` - `handle_client` como `async def`; contador `active_connections`
+- `server/domain/game_manager.py` - `async with self.lock` antes de `_add_clicks_logic`
+- `server/app/config.py` - `SIMULATE_PROCESSING_DELAY_MS`
 
 ### 4.4 Como demonstrar ao vivo
 
@@ -143,7 +143,7 @@ Limitado pelo número de corrotinas que o event loop suporta e pelos file descri
 
 ---
 
-## Seção 5: Requisito — Tolerância a Falhas (Circuit Breaker)
+## Seção 5: Requisito - Tolerância a Falhas (Circuit Breaker)
 
 ### 5.1 O que o requisito pede
 
@@ -157,21 +157,21 @@ O firmware implementa os três estados clássicos do Circuit Breaker em `firmwar
 - **OPEN** (`STATUS_OFFLINE`, `registered = false`): após 3 falhas consecutivas de rede, o circuito abre. Cliques são devolvidos ao `shared_state` e acumulam em RAM.
 - **HALF-OPEN** (retentativas com backoff): tenta `rpc_register_node()` com backoff exponencial 1s → 2s → 5s → 10s. Sucesso fecha o circuito; falha reinicia o backoff.
 
-Apenas erros de rede (timeout, socket fechado) contam para o contador. Violações de Lamport e rate limiting não contam — são respostas válidas do servidor.
+Apenas erros de rede (timeout, socket fechado) contam para o contador. Violações de Lamport e rate limiting não contam - são respostas válidas do servidor.
 
 O servidor complementa com detecção passiva: `mark_inactive()` marca nós sem heartbeat há mais de 60s como `INACTIVE`, rodando a cada 10s em background.
 
 ### 5.3 Evidências no código
 
-- `firmware/tasks/task_rpc.c` — `if (consecutive_rpc_failures >= 3)` (linha ~409), backoff no bloco `!registered`
-- `firmware/config/firmware_config.h` — `RPC_REGISTER_BACKOFF_1/2/3/MAX`
-- `server/domain/node_registry.py` — `mark_inactive()`, timeout de 60s (linha ~91)
+- `firmware/tasks/task_rpc.c` - `if (consecutive_rpc_failures >= 3)` (linha ~409), backoff no bloco `!registered`
+- `firmware/config/firmware_config.h` - `RPC_REGISTER_BACKOFF_1/2/3/MAX`
+- `server/domain/node_registry.py` - `mark_inactive()`, timeout de 60s (linha ~91)
 
 ### 5.4 Como demonstrar ao vivo
 
 1. Com 3 placas em STATUS_ONLINE, parar o servidor (`Ctrl+C`).
 2. Log serial da placa: `Falha RPC #1/3` → `#2/3` → `#3/3` → display mostra `!! OFFLINE`.
-3. Gerar cliques offline — display mostra contagem acumulando.
+3. Gerar cliques offline - display mostra contagem acumulando.
 4. Religar servidor.
 5. Placa faz retry → log serial mostra backoff → `STATUS_SYNCING` → `STATUS_ONLINE`.
 6. Log do servidor mostra `sync_offline_ok` com score atualizado.
@@ -179,14 +179,14 @@ O servidor complementa com detecção passiva: `mark_inactive()` marca nós sem 
 ### 5.5 Perguntas esperadas
 
 **P: E se a placa perder energia enquanto offline?**
-Cliques pendentes são perdidos — vivem apenas na RAM. É trade-off consciente: writes em flash degradam a memória do RP2040 e o volume de cliques não justifica persistência.
+Cliques pendentes são perdidos - vivem apenas na RAM. É trade-off consciente: writes em flash degradam a memória do RP2040 e o volume de cliques não justifica persistência.
 
 **P: Circuit breaker no firmware é diferente do padrão clássico?**
-Não: CLOSED, OPEN e HALF-OPEN estão implementados. A diferença é que não há timeout fixo para fechar — o circuito fecha somente após `register_node()` bem-sucedido e sync offline. Ver `task_rpc.c` linhas ~409-420.
+Não: CLOSED, OPEN e HALF-OPEN estão implementados. A diferença é que não há timeout fixo para fechar - o circuito fecha somente após `register_node()` bem-sucedido e sync offline. Ver `task_rpc.c` linhas ~409-420.
 
 ---
 
-## Seção 6: Requisito — Sincronização (Relógio de Lamport)
+## Seção 6: Requisito - Sincronização (Relógio de Lamport)
 
 ### 6.1 O que o requisito pede
 
@@ -209,10 +209,10 @@ Violações são persistidas em `lamport_violations` no SQLite para auditoria e 
 
 ### 6.3 Evidências no código
 
-- `firmware/middleware/lamport.c` — `lamport_tick()` e `lamport_update()` com overflow detection
-- `server/domain/game_manager.py` — detecção e rejeição (linhas 91-105)
-- `server/domain/lamport_clock.py` — `update()`: `max(local, received) + 1`
-- `server/infra/db.py` — tabela `lamport_violations` (linha ~68)
+- `firmware/middleware/lamport.c` - `lamport_tick()` e `lamport_update()` com overflow detection
+- `server/domain/game_manager.py` - detecção e rejeição (linhas 91-105)
+- `server/domain/lamport_clock.py` - `update()`: `max(local, received) + 1`
+- `server/infra/db.py` - tabela `lamport_violations` (linha ~68)
 
 ### 6.4 Como demonstrar ao vivo
 
@@ -224,19 +224,19 @@ Resposta esperada:
 ```json
 {"jsonrpc":"2.0","result":{"error":"LAMPORT_VIOLATION","lamport_ts":42},"id":99}
 ```
-Abrir `http://<IP>:8080/api/violations` — violação registrada com `received_ts=1`, `server_ts=N`.
+Abrir `http://<IP>:8080/api/violations` - violação registrada com `received_ts=1`, `server_ts=N`.
 
 ### 6.5 Perguntas esperadas
 
 **P: Qual a diferença entre Lamport e timestamp físico?**
-Lamport captura causalidade: se A causou B, então `L(A) < L(B)`. Dois eventos com `L=5` e `L=7` podem ter ocorrido no mesmo segundo físico — o que importa é a relação de causa e efeito, não o tempo de parede.
+Lamport captura causalidade: se A causou B, então `L(A) < L(B)`. Dois eventos com `L=5` e `L=7` podem ter ocorrido no mesmo segundo físico - o que importa é a relação de causa e efeito, não o tempo de parede.
 
 **P: O que acontece com o clock do firmware ao receber LAMPORT_VIOLATION?**
 O servidor retorna o `lamport_ts` corrigido no campo de erro. O firmware chama `lamport_update(resp.lamport_ts)` para sincronizar o clock local antes de tentar novamente. A violação não conta para o circuit breaker.
 
 ---
 
-## Seção 7: Requisito — Descoberta de Serviços (UDP Broadcast)
+## Seção 7: Requisito - Descoberta de Serviços (UDP Broadcast)
 
 ### 7.1 O que o requisito pede
 
@@ -256,15 +256,15 @@ O firmware extrai IP de origem e porta da resposta e configura o cliente RPC (`r
 
 ### 7.3 Evidências no código
 
-- `firmware/discovery/service_disc.c` — `service_disc_discover()`: UDP sendto + polling de callback
-- `server/infra/udp_discovery.py` — `DiscoveryDatagramProtocol.datagram_received()`: valida prefixo e responde
-- `firmware/tasks/task_rpc.c` — `setup_network_target()`: chama discover e configura fallback
-- `firmware/rpc_client.c` — `FALLBACK_SERVER_IP` com guard `#ifndef`
+- `firmware/discovery/service_disc.c` - `service_disc_discover()`: UDP sendto + polling de callback
+- `server/infra/udp_discovery.py` - `DiscoveryDatagramProtocol.datagram_received()`: valida prefixo e responde
+- `firmware/tasks/task_rpc.c` - `setup_network_target()`: chama discover e configura fallback
+- `firmware/rpc_client.c` - `FALLBACK_SERVER_IP` com guard `#ifndef`
 
 ### 7.4 Como demonstrar ao vivo
 
-1. Iniciar servidor — porta 9999 já está escutando.
-2. Ligar uma placa — log serial mostra:
+1. Iniciar servidor - porta 9999 já está escutando.
+2. Ligar uma placa - log serial mostra:
 ```
 [DISC] Broadcast enviado: COOKIE_DISCOVER:NODE_ID:0. Aguardando UDP...
 [DISC] Sucesso! Servidor em 192.168.0.5:8765
@@ -281,7 +281,7 @@ Sim, no boot. Após discovery bem-sucedido (ou fallback), o IP é fixo na sessã
 
 ---
 
-## Seção 8: Requisito — Consistência Eventual (Sincronização Offline)
+## Seção 8: Requisito - Consistência Eventual (Sincronização Offline)
 
 ### 8.1 O que o requisito pede
 
@@ -289,7 +289,7 @@ Se houver replicação ou operação particionada, demonstrar como a consistênc
 
 ### 8.2 Como está implementado
 
-Durante partição de rede (STATUS_OFFLINE), a ISR do botão A continua incrementando `pending_clicks` em `shared_state` via spinlock. O firmware não descarta nenhum clique — apenas deixa de enviá-los.
+Durante partição de rede (STATUS_OFFLINE), a ISR do botão A continua incrementando `pending_clicks` em `shared_state` via spinlock. O firmware não descarta nenhum clique - apenas deixa de enviá-los.
 
 Ao reconectar, o firmware chama `sync_offline(accumulated_clicks, lamport_ts)`. O servidor aplica rate limiting proporcional ao tempo de ausência:
 
@@ -299,19 +299,19 @@ max_allowed = int(50 * offline_seconds)   # 50 clicks/s
 accepted    = min(accumulated_clicks, max_allowed)
 ```
 
-Se o nó nunca tinha se registrado (`last_seen == 0`), `offline_seconds = 0` e nenhum clique é aceito — evita injeção irrestrita no primeiro sync. Após o sync, o servidor retorna o estado consolidado com `node_scores` de todos os nós e o nó volta para STATUS_ONLINE.
+Se o nó nunca tinha se registrado (`last_seen == 0`), `offline_seconds = 0` e nenhum clique é aceito - evita injeção irrestrita no primeiro sync. Após o sync, o servidor retorna o estado consolidado com `node_scores` de todos os nós e o nó volta para STATUS_ONLINE.
 
 ### 8.3 Evidências no código
 
-- `firmware/middleware/shared_state.c` — `shared_state_restore_clicks()` e `shared_state_take_pending_clicks()`
-- `server/domain/game_manager.py` — `_sync_offline_logic()` (linhas ~220-342)
-- `firmware/tasks/task_rpc.c` — bloco de sync após registro bem-sucedido
+- `firmware/middleware/shared_state.c` - `shared_state_restore_clicks()` e `shared_state_take_pending_clicks()`
+- `server/domain/game_manager.py` - `_sync_offline_logic()` (linhas ~220-342)
+- `firmware/tasks/task_rpc.c` - bloco de sync após registro bem-sucedido
 
 ### 8.4 Como demonstrar ao vivo
 
 1. Com placa ONLINE, gerar alguns cliques (score sobe no dashboard).
-2. Parar o servidor (`Ctrl+C`) — placa vai para OFFLINE em ~2s.
-3. Gerar 30 cliques offline — display mostra acumulando.
+2. Parar o servidor (`Ctrl+C`) - placa vai para OFFLINE em ~2s.
+3. Gerar 30 cliques offline - display mostra acumulando.
 4. Religar servidor.
 5. Log do servidor:
 ```
@@ -327,7 +327,7 @@ Se o nó nunca tinha se registrado (`last_seen == 0`), `offline_seconds = 0` e n
 Sem ele, um nó poderia ficar offline por horas, acumular 100.000 cliques e injetá-los instantaneamente, distorcendo o placar. O limite de `50 clicks/s × offline_seconds` reflete o máximo fisicamente possível no período de ausência.
 
 **P: Score é replicado entre nós?**
-Não há replicação entre nós. O servidor é o único ponto de verdade. Cada nó mantém um score local na RAM (atualizado pelo servidor via resposta RPC), mas é apenas cache de display — o servidor decide o score real.
+Não há replicação entre nós. O servidor é o único ponto de verdade. Cada nó mantém um score local na RAM (atualizado pelo servidor via resposta RPC), mas é apenas cache de display - o servidor decide o score real.
 
 ---
 
@@ -382,7 +382,7 @@ Não há replicação entre nós. O servidor é o único ponto de verdade. Cada 
 [ ] 8. Demonstrar Lamport:
         echo '{"jsonrpc":"2.0","method":"add_clicks","params":{"node_id":0,"clicks":5,"lamport_ts":1},"id":99}' | nc localhost 8765
         Verificar: resposta contém "LAMPORT_VIOLATION"
-        http://<IP>:8080/api/violations — violação persistida
+        http://<IP>:8080/api/violations - violação persistida
 
 [ ] 9. Demonstrar sync offline:
         Ctrl+C no servidor
@@ -396,19 +396,19 @@ Não há replicação entre nós. O servidor é o único ponto de verdade. Cada 
 ## Seção 11: Perguntas Difíceis e Respostas
 
 **P: Por que não usar threads no servidor?**
-Threads têm overhead de context switch e exigem locks mais pesados. Com asyncio, o overhead por conexão é uma corrotina de ~1 KB de stack. Para I/O-bound (sockets, banco de dados) o event loop é suficiente e mais simples de raciocinar. Ver `rpc_server.py` — sem `threading.Thread` em nenhuma linha.
+Threads têm overhead de context switch e exigem locks mais pesados. Com asyncio, o overhead por conexão é uma corrotina de ~1 KB de stack. Para I/O-bound (sockets, banco de dados) o event loop é suficiente e mais simples de raciocinar. Ver `rpc_server.py` - sem `threading.Thread` em nenhuma linha.
 
 **P: O que acontece se dois nós enviarem cliques no mesmo instante?**
 Timestamps de Lamport garantem ordem: cada nó incrementa antes de enviar, então `L_0 ≠ L_1` mesmo que o envio seja simultâneo. O servidor processa sequencialmente no event loop, e o `game_lock` garante que `global_score` não seja atualizado concorrentemente. Ver `game_manager.py` L~82.
 
 **P: E se o banco SQLite corromper?**
-O score global é reconstruído do banco no boot via `reconstruct_global_score()`. Deletar `avocado.db` faz o servidor recriar o schema vazio — sistema continua operando com scores zerados. Para produção usaríamos PostgreSQL com replicação; SQLite é adequado para prototipação acadêmica.
+O score global é reconstruído do banco no boot via `reconstruct_global_score()`. Deletar `avocado.db` faz o servidor recriar o schema vazio - sistema continua operando com scores zerados. Para produção usaríamos PostgreSQL com replicação; SQLite é adequado para prototipação acadêmica.
 
 **P: Circuit breaker no firmware é o padrão clássico?**
-Sim: CLOSED (online, 0 falhas), OPEN (offline, após 3 falhas), HALF-OPEN (retentativas com backoff). A diferença do padrão clássico é que não há timeout fixo para fechar o circuito — ele fecha apenas após `register_node()` bem-sucedido mais sync offline. Ver `task_rpc.c` L~409.
+Sim: CLOSED (online, 0 falhas), OPEN (offline, após 3 falhas), HALF-OPEN (retentativas com backoff). A diferença do padrão clássico é que não há timeout fixo para fechar o circuito - ele fecha apenas após `register_node()` bem-sucedido mais sync offline. Ver `task_rpc.c` L~409.
 
 **P: O relógio de Lamport garante ordem total entre todos os nós?**
-Não — Lamport garante apenas ordem causal (se A causou B, então `L(A) < L(B)`). Dois eventos concorrentes podem ter qualquer relação de timestamps. Para ordem total precisaríamos de Lamport com desempate por ID de nó (Lamport total order) ou vector clocks. O projeto usa Lamport para detectar pacotes atrasados ou duplicados, não para ordenação global de eventos.
+Não - Lamport garante apenas ordem causal (se A causou B, então `L(A) < L(B)`). Dois eventos concorrentes podem ter qualquer relação de timestamps. Para ordem total precisaríamos de Lamport com desempate por ID de nó (Lamport total order) ou vector clocks. O projeto usa Lamport para detectar pacotes atrasados ou duplicados, não para ordenação global de eventos.
 
 **P: Por que o dashboard usa WebSocket e não polling HTTP?**
-O servidor já tem event loop asyncio. WebSocket é nativo nesse modelo: o domínio chama `_notify()` que faz broadcast imediato sem armazenar em fila. Com polling HTTP, o dashboard descobriria eventos com latência de `POLL_INTERVAL`. Ver `dashboard/websocket.py` — `notify()` e `broadcast_loop()` (safety net a cada 5s).
+O servidor já tem event loop asyncio. WebSocket é nativo nesse modelo: o domínio chama `_notify()` que faz broadcast imediato sem armazenar em fila. Com polling HTTP, o dashboard descobriria eventos com latência de `POLL_INTERVAL`. Ver `dashboard/websocket.py` - `notify()` e `broadcast_loop()` (safety net a cada 5s).

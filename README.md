@@ -58,25 +58,25 @@ O firmware não gerencia sockets diretamente. Toda comunicação de rede é medi
 
 ### Arquitetura em N Camadas
 
-O servidor segue separação estrita em três camadas: **Apresentação** (`server/dashboard/` — HTTP 8080, WebSocket 8081), **Lógica de Negócio** (`server/domain/` — `GameManager`, `NodeRegistry`, `LamportClock`) e **Persistência** (`server/infra/db.py` + SQLite). As camadas se comunicam apenas por injeção de dependência, sem imports circulares.
+O servidor segue separação estrita em três camadas: **Apresentação** (`server/dashboard/` - HTTP 8080, WebSocket 8081), **Lógica de Negócio** (`server/domain/` - `GameManager`, `NodeRegistry`, `LamportClock`) e **Persistência** (`server/infra/db.py` + SQLite). As camadas se comunicam apenas por injeção de dependência, sem imports circulares.
 
-### Concorrência — Event Loop asyncio
+### Concorrência - Event Loop asyncio
 
-O servidor atende múltiplas conexões TCP simultaneamente via event loop asyncio sem threads. Cada conexão persistente é uma corrotina independente; o campo `active_connections` no log e no dashboard mostra o número de placas conectadas em tempo real. Para tornar a concorrência visível durante a apresentação, inicie o servidor com `SIMULATE_PROCESSING_DELAY_MS=500` — cada RPC introduzirá 500 ms de delay artificial, mantendo `active_connections=3` visível no log enquanto as três placas enviam cliques simultaneamente.
+O servidor atende múltiplas conexões TCP simultaneamente via event loop asyncio sem threads. Cada conexão persistente é uma corrotina independente; o campo `active_connections` no log e no dashboard mostra o número de placas conectadas em tempo real. Para tornar a concorrência visível durante a apresentação, inicie o servidor com `SIMULATE_PROCESSING_DELAY_MS=500` - cada RPC introduzirá 500 ms de delay artificial, mantendo `active_connections=3` visível no log enquanto as três placas enviam cliques simultaneamente.
 
-### Tolerância a Falhas — Circuit Breaker no Firmware
+### Tolerância a Falhas - Circuit Breaker no Firmware
 
-O firmware implementa o padrão **circuit breaker**: após 3 falhas RPC consecutivas (timeout ou erro de rede), o nó transita para `STATUS_OFFLINE`, para de tentar enviar e acumula cliques em `pending_clicks` na memória. A reconexão usa backoff exponencial: 1 s → 2 s → 5 s → 10 s (definido em `firmware/config/firmware_config.h`). Adicionalmente, um heartbeat periódico de 30 s reenvia `register_node` para manter o nó `ACTIVE` no `NodeRegistry` do servidor. Ver `firmware/tasks/task_rpc.c`.
+O firmware implementa o padrão **circuit breaker**: após 3 falhas RPC consecutivas (timeout ou erro de rede), o nó transita para `STATUS_OFFLINE`, para de tentar enviar e acumula cliques em `pending_clicks` na memória. A reconexão usa backoff exponencial: 1 s → 2 s → 5 s → 10 s (definido em `firmware/config/firmware_config.h`). Além disso, um heartbeat periódico de 30 s reenvia `register_node` para manter o nó `ACTIVE` no `NodeRegistry` do servidor. Ver `firmware/tasks/task_rpc.c`.
 
-### Sincronização — Relógio de Lamport
+### Sincronização - Relógio de Lamport
 
 Cada mensagem RPC carrega um timestamp lógico de Lamport incrementado pelo firmware antes do envio (`lamport_tick`) e atualizado com `max(local, server) + 1` após cada resposta. O servidor detecta violações de ordem causal (timestamp recebido ≤ último aceito para o nó), rejeita o evento com `LAMPORT_VIOLATION`, persiste a violação em banco para auditoria e corrige o clock. Ver `server/domain/game_manager.py` e `server/domain/lamport_clock.py`.
 
-### Descoberta de Serviços — UDP Broadcast
+### Descoberta de Serviços - UDP Broadcast
 
 Ao inicializar, o firmware envia pacotes UDP broadcast na rede local (porta 9999) e aguarda até 3 s pela resposta do servidor contendo IP e porta TCP. Se o discovery falhar (servidor ausente ou rede segmentada), o firmware usa `FALLBACK_SERVER_IP` compilado no binário via `-DFALLBACK_SERVER_IP=...` no CMake. Ver `server/infra/udp_discovery.py` e `firmware/discovery/service_disc.c`.
 
-### Consistência Eventual — Sincronização Offline
+### Consistência Eventual - Sincronização Offline
 
 Cliques gerados enquanto o nó está offline são acumulados em `pending_clicks` na memória do firmware (protegido por spinlock em `firmware/middleware/shared_state.c`). Ao reconectar, o firmware chama `sync_offline` com o total acumulado. O servidor aplica rate limiting proporcional ao tempo de ausência (`50 clicks/s × offline_seconds`) para limitar injeções retroativas, atualiza o score global e responde com o estado consolidado. O score converge sem perder eventos válidos. Ver `server/domain/game_manager.py`, método `_sync_offline_logic`.
 
@@ -123,7 +123,7 @@ cmake --build . --target node1   # → avocado_node1.uf2
 
 ### Build local com secrets.h
 
-Copie o template e preencha suas credenciais — **nunca commite este arquivo**:
+Copie o template e preencha suas credenciais - **nunca commite este arquivo**:
 
 ```bash
 cp firmware/config/secrets.h.template firmware/config/secrets.h
@@ -142,7 +142,7 @@ cmake --build . --target all_nodes
 
 ### Gravação
 
-1. Segure **BOOTSEL** ao conectar a placa via USB — ela aparece como drive `RPI-RP2`
+1. Segure **BOOTSEL** ao conectar a placa via USB - ela aparece como drive `RPI-RP2`
 2. Copie o `.uf2` correspondente para o drive
 3. A placa reinicia automaticamente com o firmware gravado
 

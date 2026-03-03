@@ -1,4 +1,4 @@
-# FIRMWARE.md — Referência de Firmware
+# FIRMWARE.md - Referência de Firmware
 
 ---
 
@@ -48,10 +48,10 @@ Definida em `firmware/middleware/shared_state.h` como `connection_status_t`.
 
 | Estado | Valor enum | Indicador no OLED | Indicador nos LEDs |
 |--------|-----------|------------------|--------------------|
-| `STATUS_CONNECTING` | 0 | `~~ Conectando...` | — |
+| `STATUS_CONNECTING` | 0 | `~~ Conectando...` | - |
 | `STATUS_ONLINE` | 1 | `[*]` no cabecalho | dígito cinza normal |
 | `STATUS_OFFLINE` | 2 | `!! OFFLINE` + `[!]` | LED 12 pisca vermelho |
-| `STATUS_SYNCING` | 3 | `> Enviando: N` + `[>]` | — |
+| `STATUS_SYNCING` | 3 | `> Enviando: N` + `[>]` | - |
 
 ---
 
@@ -89,7 +89,7 @@ cycle_start = time_us_64()
 |         se consecutive_rpc_failures >= 3:
 |           STATUS_OFFLINE; registered=false; counter=0
 |
-+-- [6] Scores refresh (a cada SCORES_REFRESH_MS = 5000ms):
++-- [6] Scores refresh (a cada SCORES_REFRESH_MS = 2000ms):
 |         rpc_get_scores() -> shared_state_set_global_score() + set_node_scores()
 |
 +-- [7] Compensacao de tempo:
@@ -161,7 +161,7 @@ Manual, sem biblioteca externa:
 | `MONITOR_PERIOD_MS` | 5000 | ms | Intervalo de telemetria da task_monitor |
 | `RPC_POLL_PERIOD_MS` | 100 | ms | Latencia de resposta da task_rpc (modo offline) |
 | `CYCLE_PERIOD_US` | 20000 | µs | Periodo exato do ciclo online da task_rpc |
-| `SCORES_REFRESH_MS` | 5000 | ms | Intervalo de busca de scores globais |
+| `SCORES_REFRESH_MS` | 2000 | ms | Intervalo de busca de scores globais |
 | `HEARTBEAT_INTERVAL_US` | 30000000 | µs | Intervalo de heartbeat ao servidor (30s) |
 | `RPC_REGISTER_BACKOFF_1` | 1000 | ms | Backoff apos 1a falha de registro |
 | `RPC_REGISTER_BACKOFF_2` | 2000 | ms | Backoff apos 2a falha de registro |
@@ -203,7 +203,7 @@ Manual, sem biblioteca externa:
 | `WIFI_SSID` | `""` | SSID da rede WiFi (sobrescrito via env ou secrets.h) |
 | `WIFI_PASSWORD` | `""` | Senha WiFi (sobrescrito via env ou secrets.h) |
 
-`FALLBACK_SERVER_IP` nao e definido aqui — vive em `rpc_client.c` com guard `#ifndef`.
+`FALLBACK_SERVER_IP` nao e definido aqui - vive em `rpc_client.c` com guard `#ifndef`.
 
 ### Macros definidas em `CMakeLists.txt` (por target)
 
@@ -221,8 +221,8 @@ Manual, sem biblioteca externa:
 
 | Macro | Valor | Unidade | Descricao |
 |-------|-------|---------|-----------|
-| `FALLBACK_SERVER_IP` | `"192.168.0.10"` | — | IP padrao se discovery falhar e nao for sobrescrito |
-| `FALLBACK_SERVER_PORT` | 8765 | — | Porta TCP do servidor RPC |
+| `FALLBACK_SERVER_IP` | `"192.168.0.10"` | - | IP padrao se discovery falhar e nao for sobrescrito |
+| `FALLBACK_SERVER_PORT` | 8765 | - | Porta TCP do servidor RPC |
 | `RECV_TIMEOUT_MS` | 2000 | ms | Timeout de recepcao via socket |
 | `SEND_TIMEOUT_MS` | 2000 | ms | Timeout de envio via socket |
 | `CONNECT_TIMEOUT_MS` | 3000 | ms | Timeout de conexao TCP |

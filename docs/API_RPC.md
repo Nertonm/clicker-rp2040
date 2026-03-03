@@ -1,4 +1,4 @@
-# API_RPC.md — Referência da API JSON-RPC 2.0
+# API_RPC.md - Referência da API JSON-RPC 2.0
 
 Todos os metodos sao invocados sobre uma conexao TCP persistente na porta 8765. O protocolo e JSON-RPC 2.0: cada requisicao e uma linha JSON terminada em `\n`; cada resposta e uma linha JSON terminada em `\n`.
 
@@ -108,12 +108,12 @@ Resposta de sucesso:
 
 | Codigo de aplicacao | Campo no JSON de erro | Condicao |
 |--------------------|-----------------------|---------|
-| — | `"error": "LAMPORT_VIOLATION"` | `lamport_ts <= last_lamport` do no no servidor |
-| — | `"error": "RATE_EXCEEDED"` | Mais cliques enviados do que o rate limit permite (retornado dentro de `result`, nao de `error` JSON-RPC) |
+| - | `"error": "LAMPORT_VIOLATION"` | `lamport_ts <= last_lamport` do no no servidor |
+| - | `"error": "RATE_EXCEEDED"` | Mais cliques enviados do que o rate limit permite (retornado dentro de `result`, nao de `error` JSON-RPC) |
 
 **Nota sobre RATE_EXCEEDED:** o servidor retorna este caso dentro do campo `result` (nao como erro JSON-RPC), com `status: "RATE_EXCEEDED"`. O firmware detecta via `json_contains(json, "RATE_EXCEEDED")`.
 
-**Exemplo — sucesso:**
+**Exemplo - sucesso:**
 
 Requisicao:
 ```json
@@ -125,14 +125,14 @@ Resposta:
 {"jsonrpc":"2.0","result":{"status":"SUCCESS","accepted_clicks":5,"rejected_clicks":0,"global_score":105,"node_score":55,"lamport_ts":8,"milestone":false,"milestone_value":null},"id":1}
 ```
 
-**Exemplo — LAMPORT_VIOLATION:**
+**Exemplo - LAMPORT_VIOLATION:**
 
 Resposta (servidor detectou timestamp regressivo):
 ```json
 {"jsonrpc":"2.0","result":{"error":"LAMPORT_VIOLATION","lamport_ts":9},"id":1}
 ```
 
-**Exemplo — RATE_EXCEEDED:**
+**Exemplo - RATE_EXCEEDED:**
 
 Resposta:
 ```json
@@ -192,7 +192,7 @@ Resposta:
 |-------|------|------------|-----------|
 | `node_id` | integer | sim | Identificador do no |
 
-**Retorno (sucesso — powerup ativado):**
+**Retorno (sucesso - powerup ativado):**
 
 | Campo | Tipo | Descricao |
 |-------|------|-----------|
@@ -212,7 +212,7 @@ Resposta:
 |--------|---------|
 | -32000 | Excecao interna |
 
-**Exemplo — ativacao:**
+**Exemplo - ativacao:**
 
 Requisicao:
 ```json
@@ -224,7 +224,7 @@ Resposta:
 {"jsonrpc":"2.0","result":{"status":"SUCCESS","time_remaining":10},"id":3}
 ```
 
-**Exemplo — ja ativo:**
+**Exemplo - ja ativo:**
 
 ```json
 {"jsonrpc":"2.0","result":{"error":"ALREADY_ACTIVE","remaining":6.4},"id":3}

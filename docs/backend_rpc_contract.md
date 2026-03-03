@@ -126,4 +126,4 @@ Para manter o parsing do firmware estável:
 1. **Nomes de Campos**: Devem ser exatamente como definidos (Case‑Sensitive).
 2. **Booleanos**: Nunca use `0` ou `1`. Use sempre `true` ou `false` minúsculos, sem espaços extras entre a chave e o valor (ex: `"milestone":true`).
 3. **Novos Campos**: O servidor pode adicionar novos campos no objeto `result`. O firmware irá ignorá-los automaticamente, desde que os nomes não colidam com os existentes.
-4. **Campos Opcionais**: Se um campo numérico não for enviado, o firmware manterá o valor anterior em memória. No entanto, recomenda-se enviar todos os campos para garantir a sincronização autoritativa.
+4. **Campos Opcionais**: Se um campo numérico não for enviado, o firmware manterá o valor anterior em memória. Porém, recomenda-se enviar todos os campos para garantir a sincronização autoritativa.

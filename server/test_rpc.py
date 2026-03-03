@@ -25,13 +25,13 @@ async def test_client(client_id, delay_test=False):
         assert resp.get("error", {}).get("code") == -32601
 
         # Test 2: register_node
-        resp = await send_rpc(reader, writer, "register_node", {"node_id": f"node_{client_id}", "ip": "127.0.0.1"}, 2)
+        resp = await send_rpc(reader, writer, "register_node", {"node_id": client_id, "ip": "127.0.0.1"}, 2)
         print(f"Client {client_id} - Test 2 (register): Success")
 
         # Test 2.5: get_active_nodes (Validators routing to NodeRegistry)
         resp = await send_rpc(reader, writer, "get_active_nodes", {}, 25)
         print(f"Client {client_id} - Test 2.5 (get_active_nodes): {resp.get('result')}")
-        assert f"node_{client_id}" in resp.get("result", [])
+        assert any(n.get("node_id") == client_id for n in resp.get("result", []))
 
         if delay_test:
             # Test 3: set_processing_delay (only first client sets it)
@@ -43,7 +43,7 @@ async def test_client(client_id, delay_test=False):
             
             print(f"Client {client_id} - Starting delay test...")
             start = time.time()
-            resp = await send_rpc(reader, writer, "heartbeat", {"node_id": f"node_{client_id}"}, 4)
+            resp = await send_rpc(reader, writer, "heartbeat", {"node_id": client_id}, 4)
             end = time.time()
             duration = end - start
             print(f"Client {client_id} - Heartbeat took {duration:.2f}s (expected ~0.5s)")
