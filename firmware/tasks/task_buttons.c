@@ -41,20 +41,17 @@ void task_buttons(void *param) {
       /* Solicita feedback visual imediato (flash de LED) */
       shared_state_set_led_flash_requested(true);
 
-      /* Se offline ou conectando (sem registro ainda), mantém em pending_clicks.
-       * task_rpc não drena queue_clicks enquanto !registered, então não adianta
-       * enviar para a fila agora — os clicks ficariam presos e sumiriam do
-       * contador de 'pending'. */
+      /* Se offline ou conectando (sem registro ainda), mantém em
+       * pending_clicks. task_rpc não drena queue_clicks enquanto !registered,
+       * então não adianta enviar para a fila agora — os clicks ficariam presos
+       * e sumiriam do contador de 'pending'. */
       if (status == STATUS_OFFLINE || status == STATUS_CONNECTING) {
         shared_state_restore_clicks(pending);
       } else {
-        /* Online/Connecting: envia para fila RPC */
-        click_msg_t msg = {.clicks = pending};
-
-        if (xQueueSend(queue_clicks, &msg, 0) != pdPASS) {
-          /* Fila cheia: devolve para pending_clicks */
-          shared_state_restore_clicks(pending);
-        }
+        /* Online: task_rpc consome shared_state_take_pending_clicks()
+         * diretamente a cada ciclo de 20ms (US-38). Devolve os cliques para que
+         * o próximo ciclo do task_rpc os consuma — sem envio para fila. */
+        shared_state_restore_clicks(pending);
       }
     }
 

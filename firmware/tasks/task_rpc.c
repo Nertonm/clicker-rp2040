@@ -21,6 +21,7 @@
 #include "middleware/lamport.h"
 #include "middleware/shared_state.h"
 #include "pico/cyw43_arch.h"
+#include "pico/time.h"
 #include "rpc_client.h"
 #include "task_rpc.h"
 #include <stdio.h>
@@ -106,9 +107,8 @@ void task_rpc(void *param) {
   /* Tenta conectar ao WiFi com retry periódico */
   TickType_t last_wifi_attempt = 0;
 wifi_connect:
-  if (last_wifi_attempt == 0 ||
-      (xTaskGetTickCount() - last_wifi_attempt) >=
-          pdMS_TO_TICKS(WIFI_RETRY_INTERVAL_MS)) {
+  if (last_wifi_attempt == 0 || (xTaskGetTickCount() - last_wifi_attempt) >=
+                                    pdMS_TO_TICKS(WIFI_RETRY_INTERVAL_MS)) {
     last_wifi_attempt = xTaskGetTickCount();
 
     if (setup_wifi()) {
@@ -128,23 +128,27 @@ wifi_connect:
 
       if (shared_state_take_turbo_activation_requested()) {
         apply_local_turbo(TURBO_DURATION_MS);
-        LOG_NORMAL("[TURBO]", "Ativado em modo offline duracao_ms=%u", TURBO_DURATION_MS);
+        LOG_NORMAL("[TURBO]", "Ativado em modo offline duracao_ms=%u",
+                   TURBO_DURATION_MS);
       }
 
       click_msg_t msg;
       if (xQueueReceive(queue_clicks, &msg, pdMS_TO_TICKS(500)) == pdPASS) {
-        /* Devolve cliques para pending_clicks (serão sincronizados ao reconectar) */
+        /* Devolve cliques para pending_clicks (serão sincronizados ao
+         * reconectar) */
         uint32_t before = shared_state_get_pending_clicks();
         shared_state_restore_clicks(msg.clicks);
         offline_restored += msg.clicks;
         uint32_t after = shared_state_get_pending_clicks();
-        LOG_VERBOSE("[SYNC]", "OFFLINE restore: msg=%lu pending: %lu->%lu total_restored=%lu",
-                    (unsigned long)msg.clicks,
-                    (unsigned long)before, (unsigned long)after,
-                    (unsigned long)offline_restored);
+        LOG_VERBOSE(
+            "[SYNC]",
+            "OFFLINE restore: msg=%lu pending: %lu->%lu total_restored=%lu",
+            (unsigned long)msg.clicks, (unsigned long)before,
+            (unsigned long)after, (unsigned long)offline_restored);
         /* Invariante: pending aumentou */
         DIAG_CHECK(after >= before, "[ERROR]",
-                   "pending_clicks nao aumentou apos restore pending_antes=%lu depois=%lu",
+                   "pending_clicks nao aumentou apos restore pending_antes=%lu "
+                   "depois=%lu",
                    (unsigned long)before, (unsigned long)after);
       }
 
@@ -174,18 +178,19 @@ wifi_connected:
   uint8_t consecutive_rpc_failures = 0;
   uint8_t consecutive_register_failures = 0;
 
-  /* Backoff exponencial para retry de registro (definido em firmware_config.h) */
+  /* Backoff exponencial para retry de registro (definido em firmware_config.h)
+   */
   static const uint32_t register_backoff_ms[] = {
-      RPC_REGISTER_BACKOFF_1,
-      RPC_REGISTER_BACKOFF_2,
-      RPC_REGISTER_BACKOFF_3,
-      RPC_REGISTER_BACKOFF_MAX
-  };
+      RPC_REGISTER_BACKOFF_1, RPC_REGISTER_BACKOFF_2, RPC_REGISTER_BACKOFF_3,
+      RPC_REGISTER_BACKOFF_MAX};
 
   static uint32_t loop_count = 0;
-  /* Intervalo para dump de stats peridiocs (a cada 500 iterações) */
-  #define STATS_DUMP_INTERVAL 500u
+/* Intervalo para dump de stats peridiocs (a cada 500 iterações) */
+#define STATS_DUMP_INTERVAL 500u
   while (1) {
+    /* Marca o início do ciclo de 20ms para compensação de tempo ao final */
+    uint64_t cycle_start = time_us_64();
+
     loop_count++;
     if ((loop_count % 100) == 0) {
       LOG_VERBOSE("[RPC]", "loop #%lu", (unsigned long)loop_count);
@@ -214,7 +219,8 @@ wifi_connected:
       TickType_t now_ticks = xTaskGetTickCount();
       /* Calcula delay com backoff exponencial */
       uint8_t backoff_idx = consecutive_register_failures;
-      if (backoff_idx > 3) backoff_idx = 3;
+      if (backoff_idx > 3)
+        backoff_idx = 3;
       uint32_t current_retry_ms = register_backoff_ms[backoff_idx];
 
       if ((last_register_attempt == 0) ||
@@ -284,8 +290,10 @@ wifi_connected:
           consecutive_register_failures++;
           shared_state_set_connection_status(STATUS_OFFLINE);
           printf("[RPC] Registro falhou, próximo retry em %lu ms\n",
-                 (unsigned long)register_backoff_ms[
-                     consecutive_register_failures > 3 ? 3 : consecutive_register_failures]);
+                 (unsigned long)
+                     register_backoff_ms[consecutive_register_failures > 3
+                                             ? 3
+                                             : consecutive_register_failures]);
         }
       }
 
@@ -295,99 +303,91 @@ wifi_connected:
       continue;
     }
 
-    /* Processamento da Fila de Cliques Pendentes */
-    click_msg_t msg;
-    if (xQueueReceive(queue_clicks, &msg, pdMS_TO_TICKS(RPC_POLL_PERIOD_MS)) ==
-        pdPASS) {
+    /* Processamento de Cliques Pendentes — ciclo de 20ms (US-38)
+     * Consome diretamente do shared_state; task_buttons não usa a fila
+     * no modo online, eliminando a corrida entre os dois consumidores. */
+    uint32_t pending_clicks = shared_state_take_pending_clicks();
+
+    if (pending_clicks > 0) {
       connection_status_t current_status = shared_state_get_connection_status();
 
       if (current_status == STATUS_OFFLINE) {
         /* Se estamos OFFLINE, não tenta RPC, apenas acumula localmente */
-        shared_state_restore_clicks(msg.clicks);
+        shared_state_restore_clicks(pending_clicks);
       } else {
-        // Apenas processa RPC se estiver ONLINE ou CONNECTING
-        do {
-          uint32_t lamport_sent = lamport_tick();
-          RpcClickResult click_res =
-              rpc_add_clicks((int)msg.clicks, lamport_sent);
+        /* Online/Connecting: envia para o servidor */
+        uint32_t lamport_sent = lamport_tick();
+        RpcClickResult click_res =
+            rpc_add_clicks((int)pending_clicks, lamport_sent);
 
-          if (click_res.success) {
-            printf("[LAMPORT] sent=%lu recv=%lu monotonic=%s\n",
-                   (unsigned long)lamport_sent,
-                   (unsigned long)click_res.lamport_ts,
-                   click_res.lamport_ts > lamport_sent ? "OK" : "VIOLATION");
+        if (click_res.success) {
+          LOG_VERBOSE("[LAMPORT]", "sent=%lu recv=%lu monotonic=%s",
+                      (unsigned long)lamport_sent,
+                      (unsigned long)click_res.lamport_ts,
+                      click_res.lamport_ts > lamport_sent ? "OK" : "VIOLATION");
 
-            // Reset do contador de falhas em caso de sucesso
-            consecutive_rpc_failures = 0;
+          /* Reset do contador de falhas em caso de sucesso */
+          consecutive_rpc_failures = 0;
 
-            lamport_update((uint32_t)click_res.lamport_ts);
-            shared_state_set_scores(&click_res); // atômico
+          lamport_update((uint32_t)click_res.lamport_ts);
+          shared_state_set_scores(&click_res);
 
-            if (click_res.milestone_triggered) {
-              shared_state_set_led_flash_requested(true);
-              printf("[MILESTONE] Marco atingido: %d\n",
-                     click_res.milestone_value);
+          if (click_res.milestone_triggered) {
+            shared_state_set_led_flash_requested(true);
+            printf("[MILESTONE] Marco atingido: %d\n",
+                   click_res.milestone_value);
+          }
+
+          if (click_res.powerup_remaining_s > 0) {
+            apply_local_turbo((uint32_t)click_res.powerup_remaining_s * 1000u);
+            printf("[TURBO] Power-up do servidor: %d s restantes\n",
+                   click_res.powerup_remaining_s);
+          }
+        } else {
+          /* Tratamento de Erros do Servidor */
+          if (click_res.error_code == RPC_RATE_EXCEEDED) {
+            /* Rate limit: servidor aceitou apenas parte dos cliques.
+             * Atualiza scores com os cliques aceitos e restaura os rejeitados.
+             */
+            if (click_res.accepted_clicks > 0) {
+              lamport_update((uint32_t)click_res.lamport_ts);
+              shared_state_set_scores(&click_res);
             }
-
-            if (click_res.powerup_remaining_s > 0) {
-              apply_local_turbo((uint32_t)click_res.powerup_remaining_s *
-                                1000u);
-              printf("[TURBO] Power-up do servidor: %d s restantes\n",
-                     click_res.powerup_remaining_s);
+            uint32_t rejected =
+                pending_clicks - (uint32_t)click_res.accepted_clicks;
+            if (rejected > 0) {
+              shared_state_restore_clicks(rejected);
             }
+            consecutive_rpc_failures = 0; /* Rate limit não é falha de rede */
           } else {
-            /* Tratamento de Erros do Servidor */
-            if (click_res.error_code == RPC_RATE_EXCEEDED) {
-              /* Rate limit: servidor aceitou apenas parte dos cliques.
-               * Atualiza scores com os cliques aceitos e restaura os rejeitados. */
-              if (click_res.accepted_clicks > 0) {
-                lamport_update((uint32_t)click_res.lamport_ts);
-                shared_state_set_scores(&click_res);
-              }
-              uint32_t rejected =
-                  msg.clicks - (uint32_t)click_res.accepted_clicks;
-              if (rejected > 0) {
-                shared_state_restore_clicks(rejected);
-              }
-              consecutive_rpc_failures = 0; /* Rate limit não é falha de rede */
+            shared_state_restore_clicks(pending_clicks);
+            if (click_res.error_code == RPC_LAMPORT_VIOLATION) {
+              lamport_update((uint32_t)click_res.lamport_ts);
+              /* Violação de Lamport não conta como falha de rede */
             } else {
-              shared_state_restore_clicks(msg.clicks);
-              if (click_res.error_code == RPC_LAMPORT_VIOLATION) {
-                lamport_update((uint32_t)click_res.lamport_ts);
-                /* Violação de Lamport não conta como falha de rede */
-              } else {
-                /* Falha de rede (timeout, desconexão, parse error, etc) */
-                consecutive_rpc_failures++;
-                printf("[RPC] Falha #%d/3\n", consecutive_rpc_failures);
+              /* Falha de rede (timeout, desconexão, parse error, etc) */
+              consecutive_rpc_failures++;
+              printf("[RPC] Falha #%d/3\n", consecutive_rpc_failures);
 
-                if (consecutive_rpc_failures >= 3) {
-                  printf("[RPC] 3 falhas consecutivas, entrando em modo "
-                         "OFFLINE\n");
-                  /* Cliques já foram restaurados em pending_clicks acima */
-                  shared_state_set_connection_status(STATUS_OFFLINE);
-                  consecutive_rpc_failures = 0;
-                  registered = false;
-
-                  /* Drena fila e restaura todos os cliques pendentes */
-                  uint32_t drained_count = 0;
-                  click_msg_t drain;
-                  while (xQueueReceive(queue_clicks, &drain, 0) == pdPASS) {
-                    shared_state_restore_clicks(drain.clicks);
-                    drained_count++;
-                  }
-                  LOG_NORMAL("[RPC]", "Fila drenada para pending_clicks msgs_drenadas=%lu pending_final=%lu",
-                             (unsigned long)drained_count,
-                             (unsigned long)shared_state_get_pending_clicks());
-                  break;
-                }
+              if (consecutive_rpc_failures >= 3) {
+                printf(
+                    "[RPC] 3 falhas consecutivas, entrando em modo OFFLINE\n");
+                /* Cliques já foram restaurados em pending_clicks acima */
+                shared_state_set_connection_status(STATUS_OFFLINE);
+                consecutive_rpc_failures = 0;
+                registered = false;
+                LOG_NORMAL("[RPC]", "transicao_offline pending_clicks=%lu",
+                           (unsigned long)shared_state_get_pending_clicks());
               }
             }
           }
-        } while (xQueueReceive(queue_clicks, &msg, 0) == pdPASS);
+        }
       }
     }
 
-    /* Atualização Periódica do Placar Global */
+    /* Atualização Periódica do Placar Global.
+     * Executado ANTES do cálculo de elapsed para que sua latência seja
+     * contabilizada no orçamento de 20ms da compensação de tempo. */
     TickType_t now = xTaskGetTickCount();
     if ((now - last_scores_refresh) >= pdMS_TO_TICKS(SCORES_REFRESH_MS)) {
       last_scores_refresh = now;
@@ -400,9 +400,8 @@ wifi_connected:
                                ? (uint32_t)scores.node_scores[i]
                                : 0;
         }
-        uint32_t global = (scores.global_score >= 0)
-                              ? (uint32_t)scores.global_score
-                              : 0;
+        uint32_t global =
+            (scores.global_score >= 0) ? (uint32_t)scores.global_score : 0;
         shared_state_set_global_score(global);
         shared_state_set_node_scores(node_scores, MAX_NODES);
         shared_state_set_local_score(node_scores[NODE_ID % MAX_NODES]);
@@ -411,6 +410,27 @@ wifi_connected:
       } else {
         printf("[RPC] Falha ao atualizar scores (ignorando)\n");
       }
+    }
+
+    /* Compensação de tempo: dorme apenas o restante do período de 20ms.
+     * Cobre todo o trabalho do ciclo, incluindo o refresh de scores acima.
+     * Garante que o ciclo não trava mesmo sob falha RPC (Critério 6). */
+    uint64_t elapsed = time_us_64() - cycle_start;
+    LOG_VERBOSE("[RPC]", "ciclo_us=%llu pending=%lu",
+                (unsigned long long)elapsed, (unsigned long)pending_clicks);
+    if (elapsed < CYCLE_PERIOD_US) {
+      uint32_t sleep_us = (uint32_t)(CYCLE_PERIOD_US - elapsed);
+      /* Converte µs para ticks FreeRTOS; mínimo de 1 tick para ceder CPU */
+      TickType_t sleep_ticks = pdMS_TO_TICKS(sleep_us / 1000u);
+      if (sleep_ticks > 0) {
+        vTaskDelay(sleep_ticks);
+      } else {
+        taskYIELD(); /* elapsed próximo de 20ms: apenas cede CPU */
+      }
+    } else {
+      /* Ciclo excedeu 20ms (ex: refresh de scores ou RPC lento).
+       * Cede CPU para não privar task_display e task_buttons. */
+      taskYIELD();
     }
   }
 }
