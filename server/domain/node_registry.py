@@ -10,6 +10,21 @@ class NodeRegistry:
     def __init__(self, lamport_clock):
         self.nodes = {}
         self.lamport_clock = lamport_clock
+        self._event_notifier = None
+
+    def set_notifier(self, fn):
+        """Injeta callable tipado: async(event_type: str, payload_json: str)."""
+        self._event_notifier = fn
+
+    async def _notify(self, event_type: str, payload: dict):
+        """Dispara evento para o dashboard. Nunca propaga excecoes ao caller."""
+        if not self._event_notifier:
+            return
+        try:
+            import json as _json
+            await self._event_notifier(event_type, _json.dumps(payload))
+        except Exception:
+            pass
 
     async def register_node(self, node_id, ip):
         """Registra ou atualiza um nó (idempotente)."""
@@ -31,6 +46,10 @@ class NodeRegistry:
         else:
             log_verbose("[NODE]", "register_reativacao",
                         node=node_id, ip=ip)
+        await self._notify("node_status_change", {
+            "node_id": node_id, "status": ACTIVE,
+            "event": "registered" if is_new else "reactivated", "ip": ip,
+        })
 
     async def load_from_db(self):
         """Sincroniza o estado em memória com o banco de dados."""
@@ -55,6 +74,10 @@ class NodeRegistry:
                 await db.update_node(node_id, self.nodes[node_id]["ip"], ACTIVE, now)
                 log_normal("[NODE]", "REATIVADO_via_heartbeat",
                            node=node_id, prev_status=prev_status)
+                await self._notify("node_status_change", {
+                    "node_id": node_id, "status": ACTIVE,
+                    "prev": INACTIVE, "event": "reactivated_via_heartbeat",
+                })
             else:
                 await db.update_last_seen(node_id, now)
                 log_trace("[NODE]", "heartbeat", node=node_id)
@@ -72,6 +95,10 @@ class NodeRegistry:
                 metric_inc("nodes_marked_inactive")
                 log_normal("[NODE]", "INATIVO",
                            node=node_id, idle_s=idle_s)
+                await self._notify("node_status_change", {
+                    "node_id": node_id, "status": INACTIVE,
+                    "prev": ACTIVE, "idle_s": idle_s,
+                })
 
     async def get_active_nodes(self):
         """Retorna lista de nós online (ACTIVE ou SYNCING)."""
@@ -108,6 +135,6 @@ class NodeRegistry:
         if prev != status:
             log_normal("[NODE]", "status_change",
                        node=node_id, prev=prev, new=status)
-
-            
-
+            await self._notify("node_status_change", {
+                "node_id": node_id, "status": status, "prev": prev,
+            })

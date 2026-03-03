@@ -24,23 +24,30 @@
 /* --- Helpers de diagnóstico --- */
 static const char *rpc_error_name(RpcError e) {
   switch (e) {
-    case RPC_OK:              return "OK";
-    case RPC_TIMEOUT:         return "TIMEOUT";
-    case RPC_DISCONNECTED:    return "DISCONNECTED";
-    case RPC_LAMPORT_VIOLATION: return "LAMPORT_VIOLATION";
-    case RPC_RATE_EXCEEDED:   return "RATE_EXCEEDED";
-    case RPC_PARSE_ERROR:     return "PARSE_ERROR";
-    default:                  return "UNKNOWN";
+  case RPC_OK:
+    return "OK";
+  case RPC_TIMEOUT:
+    return "TIMEOUT";
+  case RPC_DISCONNECTED:
+    return "DISCONNECTED";
+  case RPC_LAMPORT_VIOLATION:
+    return "LAMPORT_VIOLATION";
+  case RPC_RATE_EXCEEDED:
+    return "RATE_EXCEEDED";
+  case RPC_PARSE_ERROR:
+    return "PARSE_ERROR";
+  default:
+    return "UNKNOWN";
   }
 }
 
 /* --- Contadores de diagnóstico do módulo RPC --- */
-static uint32_t diag_rpc_total     = 0; /* Total de chamadas rpc_call_with_retry */
-static uint32_t diag_rpc_ok        = 0; /* Chamadas bem-sucedidas                */
-static uint32_t diag_rpc_timeout   = 0; /* Falhas por timeout                    */
-static uint32_t diag_rpc_disconnect= 0; /* Falhas por desconexão                 */
-static uint32_t diag_parse_ok      = 0; /* Parse JSON bem-sucedido               */
-static uint32_t diag_parse_fail    = 0; /* Parse JSON com falha                  */
+static uint32_t diag_rpc_total = 0; /* Total de chamadas rpc_call_with_retry */
+static uint32_t diag_rpc_ok = 0;    /* Chamadas bem-sucedidas                */
+static uint32_t diag_rpc_timeout = 0;    /* Falhas por timeout    */
+static uint32_t diag_rpc_disconnect = 0; /* Falhas por desconexão */
+static uint32_t diag_parse_ok = 0;   /* Parse JSON bem-sucedido               */
+static uint32_t diag_parse_fail = 0; /* Parse JSON com falha                  */
 
 /** @name Configurações de Fallback e Timeout */
 /** @{ */
@@ -179,7 +186,8 @@ static bool connect_to_server(void) {
 
   /* Habilita TCP keepalive para detectar conexões mortas */
   int keepalive = 1;
-  lwip_setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+  lwip_setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &keepalive,
+                  sizeof(keepalive));
 
   rpc_state.sock = sock;
   printf("[RPC] Conectado ao servidor %s:%u\n", rpc_state.server_ip,
@@ -322,9 +330,8 @@ static bool rpc_call_with_retry(const char *request, char *response,
       DIAG_CNT_INC(diag_rpc_ok);
       if (out_err)
         *out_err = RPC_OK;
-      LOG_VERBOSE("[RPC]", "chamada ok tentativa=%d total=%lu ok=%lu",
-                  attempt, (unsigned long)diag_rpc_total,
-                  (unsigned long)diag_rpc_ok);
+      LOG_VERBOSE("[RPC]", "chamada ok tentativa=%d total=%lu ok=%lu", attempt,
+                  (unsigned long)diag_rpc_total, (unsigned long)diag_rpc_ok);
       return true;
     }
 
@@ -333,10 +340,10 @@ static bool rpc_call_with_retry(const char *request, char *response,
     } else {
       DIAG_CNT_INC(diag_rpc_disconnect);
     }
-    LOG_ERROR("[RPC]", "FALHA tentativa=%d/3 err=%s timeouts=%lu disconnects=%lu",
-              attempt, rpc_error_name(last_err),
-              (unsigned long)diag_rpc_timeout,
-              (unsigned long)diag_rpc_disconnect);
+    LOG_ERROR(
+        "[RPC]", "FALHA tentativa=%d/3 err=%s timeouts=%lu disconnects=%lu",
+        attempt, rpc_error_name(last_err), (unsigned long)diag_rpc_timeout,
+        (unsigned long)diag_rpc_disconnect);
 
     if (attempt < 3) {
       vTaskDelay(pdMS_TO_TICKS(BACKOFF_MS[attempt - 1]));
@@ -375,7 +382,7 @@ static void build_activate_powerup_json(char *buffer, size_t size) {
 
 static void build_get_scores_json(char *buffer, size_t size) {
   snprintf(buffer, size,
-           "{\"jsonrpc\":\"2.0\",\"method\":\"get_scores\","
+           "{\"jsonrpc\":\"2.0\",\"method\":\"get_nodes_scores\","
            "\"params\":{},\"id\":4}\n");
 }
 
@@ -468,8 +475,9 @@ static RpcClickResult parse_add_clicks_response(const char *json) {
                 (unsigned long)result.lamport_ts);
     } else if (json_contains(json, "RATE_EXCEEDED")) {
       result.error_code = RPC_RATE_EXCEEDED;
-      json_get_int(json, "accepted_partial", &result.accepted_clicks);
-      LOG_NORMAL("[RPC]", "parse: RATE_EXCEEDED aceitos=%d", result.accepted_clicks);
+      json_get_int(json, "accepted_clicks", &result.accepted_clicks);
+      LOG_NORMAL("[RPC]", "parse: RATE_EXCEEDED aceitos=%d",
+                 result.accepted_clicks);
     } else {
       result.error_code = RPC_PARSE_ERROR;
       DIAG_CNT_INC(diag_parse_fail);
@@ -483,17 +491,18 @@ static RpcClickResult parse_add_clicks_response(const char *json) {
   result.error_code = RPC_OK;
 
   bool ok_gs = json_get_int(json, "global_score", &result.global_score);
-  bool ok_ls = json_get_int(json, "node_score",   &result.local_score);
+  bool ok_ls = json_get_int(json, "node_score", &result.local_score);
   int temp_lamport = 0;
-  bool ok_ts = json_get_int(json, "lamport_ts",   &temp_lamport);
+  bool ok_ts = json_get_int(json, "lamport_ts", &temp_lamport);
   result.lamport_ts = (uint32_t)temp_lamport;
-  json_get_int(json, "clicks", &result.accepted_clicks);
+  json_get_int(json, "accepted_clicks", &result.accepted_clicks);
 
   if (!ok_gs || !ok_ls || !ok_ts) {
     DIAG_CNT_INC(diag_parse_fail);
-    LOG_ERROR("[RPC]", "parse: campos ausentes gs=%d ls=%d ts=%d parse_fails=%lu raw=%.80s",
-              ok_gs, ok_ls, ok_ts,
-              (unsigned long)diag_parse_fail, json);
+    LOG_ERROR(
+        "[RPC]",
+        "parse: campos ausentes gs=%d ls=%d ts=%d parse_fails=%lu raw=%.80s",
+        ok_gs, ok_ls, ok_ts, (unsigned long)diag_parse_fail, json);
     result.success = false;
     result.error_code = RPC_PARSE_ERROR;
     return result;
@@ -502,7 +511,8 @@ static RpcClickResult parse_add_clicks_response(const char *json) {
   result.milestone_triggered = json_contains(json, "\"milestone\":true");
   if (result.milestone_triggered) {
     json_get_int(json, "milestone_value", &result.milestone_value);
-    LOG_NORMAL("[RPC]", "parse: MILESTONE milestone_value=%d", result.milestone_value);
+    LOG_NORMAL("[RPC]", "parse: MILESTONE milestone_value=%d",
+               result.milestone_value);
   }
 
   DIAG_CNT_INC(diag_parse_ok);
@@ -558,8 +568,14 @@ static RpcScoreResult parse_get_scores_response(const char *json) {
       pos = strstr(pos, "\"local_score\"");
       if (pos) {
         pos += strlen("\"local_score\":");
-        result.node_scores[i] = atoi(pos);
-        pos++;
+        /* Avança espaços opcionais */
+        while (*pos == ' ' || *pos == '\t')
+          pos++;
+        char *endptr;
+        long val = strtol(pos, &endptr, 10);
+        result.node_scores[i] = (int)val;
+        /* Avança o ponteiro para além do número parseado */
+        pos = (endptr > pos) ? endptr : pos + 1;
       }
     }
   }
@@ -639,8 +655,8 @@ RpcClickResult rpc_add_clicks(int clicks, uint32_t lamport_ts) {
   if (!rpc_call_with_retry(request, response, sizeof(response), &err)) {
     result.success = false;
     result.error_code = err;
-    LOG_ERROR("[RPC]", "add_clicks FALHA err=%d total=%lu ok=%lu",
-              (int)err, (unsigned long)diag_rpc_total, (unsigned long)diag_rpc_ok);
+    LOG_ERROR("[RPC]", "add_clicks FALHA err=%d total=%lu ok=%lu", (int)err,
+              (unsigned long)diag_rpc_total, (unsigned long)diag_rpc_ok);
     return result;
   }
 
@@ -648,8 +664,8 @@ RpcClickResult rpc_add_clicks(int clicks, uint32_t lamport_ts) {
   if (result.success) {
     LOG_NORMAL("[RPC]", "add_clicks OK global=%d local=%d ts=%lu ok=%lu/%lu",
                result.global_score, result.local_score,
-               (unsigned long)result.lamport_ts,
-               (unsigned long)diag_rpc_ok, (unsigned long)diag_rpc_total);
+               (unsigned long)result.lamport_ts, (unsigned long)diag_rpc_ok,
+               (unsigned long)diag_rpc_total);
   }
   return result;
 }
@@ -697,7 +713,8 @@ RpcClickResult rpc_sync_offline(int accumulated_clicks, uint32_t lamport_ts) {
                           lamport_ts);
 
   LOG_NORMAL("[SYNC]", "sync_offline: node=%d accumulated=%d lamport=%lu",
-             (int)rpc_state.node_id, accumulated_clicks, (unsigned long)lamport_ts);
+             (int)rpc_state.node_id, accumulated_clicks,
+             (unsigned long)lamport_ts);
 
   RpcError err;
   if (!rpc_call_with_retry(request, response, sizeof(response), &err)) {
@@ -710,11 +727,11 @@ RpcClickResult rpc_sync_offline(int accumulated_clicks, uint32_t lamport_ts) {
   result = parse_add_clicks_response(response);
   if (result.success) {
     LOG_NORMAL("[SYNC]", "sync_offline OK global=%d local=%d aceitos=%d ts=%lu",
-               result.global_score, result.local_score,
-               result.accepted_clicks,
+               result.global_score, result.local_score, result.accepted_clicks,
                (unsigned long)result.lamport_ts);
   } else {
-    LOG_ERROR("[SYNC]", "sync_offline parse FALHA err=%d", (int)result.error_code);
+    LOG_ERROR("[SYNC]", "sync_offline parse FALHA err=%d",
+              (int)result.error_code);
   }
   return result;
 }
@@ -722,12 +739,11 @@ RpcClickResult rpc_sync_offline(int accumulated_clicks, uint32_t lamport_ts) {
 bool rpc_is_connected(void) { return rpc_state.sock >= 0; }
 
 void rpc_print_diagnostics(void) {
-  LOG_NORMAL("[RPC]", "[STATS] total=%lu ok=%lu timeouts=%lu disconnects=%lu parse_ok=%lu parse_fail=%lu connected=%d",
-             (unsigned long)diag_rpc_total,
-             (unsigned long)diag_rpc_ok,
+  LOG_NORMAL("[RPC]",
+             "[STATS] total=%lu ok=%lu timeouts=%lu disconnects=%lu "
+             "parse_ok=%lu parse_fail=%lu connected=%d",
+             (unsigned long)diag_rpc_total, (unsigned long)diag_rpc_ok,
              (unsigned long)diag_rpc_timeout,
-             (unsigned long)diag_rpc_disconnect,
-             (unsigned long)diag_parse_ok,
-             (unsigned long)diag_parse_fail,
-             (int)(rpc_state.sock >= 0));
+             (unsigned long)diag_rpc_disconnect, (unsigned long)diag_parse_ok,
+             (unsigned long)diag_parse_fail, (int)(rpc_state.sock >= 0));
 }

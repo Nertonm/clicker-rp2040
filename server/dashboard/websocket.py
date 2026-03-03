@@ -21,7 +21,7 @@ class DashboardWebSocketServer:
         try:
             # Envia estado inicial imediatamente
             state = await self.state_service.collect_state()
-            await websocket.send(json.dumps(state))
+            await websocket.send(json.dumps({"type": "full_state", "payload": state}))
 
             # Mantém conexão aberta
             async for _ in websocket:
@@ -46,13 +46,21 @@ class DashboardWebSocketServer:
             except Exception:
                 self.clients.discard(ws)
 
-    async def broadcast_loop(self, interval=0.5):
+    async def notify(self, event_type: str, payload_json: str):
+        """Broadcast evento tipado: {type: event_type, payload: ...} para todos os clients."""
+        try:
+            msg = json.dumps({"type": event_type, "payload": json.loads(payload_json)})
+            await self.broadcast(msg)
+        except Exception:
+            traceback.print_exc()
+
+    async def broadcast_loop(self, interval=5.0):
         """Loop contínuo de atualização dos clientes."""
         while True:
             try:
                 if self.clients:
                     state = await self.state_service.collect_state()
-                    await self.broadcast(json.dumps(state))
+                    await self.broadcast(json.dumps({"type": "full_state", "payload": state}))
             except Exception:
                 traceback.print_exc()
             await asyncio.sleep(interval)

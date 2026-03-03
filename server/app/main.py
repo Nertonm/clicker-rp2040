@@ -44,7 +44,10 @@ async def main():
     # Primitivas de sincronização para o GameManager
     game_lock = asyncio.Lock()
     manager = GameManager(registry, game_repo, clock, lock=game_lock)
-    
+
+    # Reconstrói global_score a partir do banco (sobrevive a restarts do servidor)
+    await manager.reconstruct_global_score()
+
     # 3. Inicia Infraestrutura: Servidor RPC (TCP)
     rpc_server, get_active_conns = await start_rpc_server(
         manager, registry, game_repo, 
@@ -69,9 +72,10 @@ async def main():
             http_port=config.DASHBOARD_HTTP_PORT,
             ws_port=config.DASHBOARD_WS_PORT
         )
-        # Injeta o notifier no GameManager após o dashboard estar pronto.
-        # ws_server.broadcast tem a assinatura async(str) esperada pelo notifier.
-        manager.notifier = ws_server.broadcast
+        # Injeta o notifier no GameManager e NodeRegistry após o dashboard estar pronto.
+        # set_notifier() ativa _event_notifier, usado por _notify() em ambas as classes.
+        manager.set_notifier(ws_server.broadcast)
+        registry.set_notifier(ws_server.broadcast)
     except Exception as e:
         print(f"[Dashboard] Falha ao iniciar: {e} - O servidor continuará sem dashboard.")
 

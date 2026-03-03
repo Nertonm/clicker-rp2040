@@ -1,3 +1,4 @@
+import json
 import time
 
 from infra.logger import (
@@ -17,7 +18,29 @@ class GameManager():
         self.game_repo = game_repo
         self.lamport_clock = lamport_clock
         self.lock = lock
-        self.notifier = notifier  # async callable(message: str) para notificações de domínio
+        self.notifier = notifier  # backward compat — sobrescrito por main.py
+        self._event_notifier = None  # typed notifier — set via set_notifier()
+
+    def set_notifier(self, fn):
+        """Injeta callable tipado: async(event_type: str, payload_json: str)."""
+        self._event_notifier = fn
+
+    async def reconstruct_global_score(self):
+        """Reconstrói global_score a partir dos scores persistidos no banco.
+        Deve ser chamado no boot, após init_db(), para sobreviver a restarts."""
+        scores = await self.game_repo.get_nodes_scores()
+        self.global_score = sum(row.get("local_score", 0) for row in scores)
+        log_normal("[GAME]", "global_score_reconstruido_do_banco",
+                   global_score=self.global_score, nodes=len(scores))
+
+    async def _notify(self, event_type: str, payload: dict):
+        """Dispara evento para o dashboard. Nunca propaga excecoes ao caller."""
+        if not self._event_notifier:
+            return
+        try:
+            await self._event_notifier(event_type, json.dumps(payload))
+        except Exception:
+            pass
 
     def _get_node_data(self, node_id):
         if node_id not in self.nodes:
@@ -36,7 +59,7 @@ class GameManager():
                 log_error("[GAME]", "INVARIANTE: score negativo detectado",
                           context=context, node=nid, score=nd["score"])
 
-    def activate_powerup(self, node_id):
+    async def activate_powerup(self, node_id):
         now = time.time()
         node = self._get_node_data(node_id)
         
@@ -46,11 +69,14 @@ class GameManager():
             log_normal("[GAME]", "powerup_ativado",
                        node=node_id, multiplier=3, expire_in_s=10)
             metric_inc("milestones_triggered")  # reutilizado como contador de powerups
+            await self._notify("powerup_activated", {
+                "node_id": node_id, "multiplier": 3, "duration_s": 10,
+            })
             return {"status": "SUCCESS", "time_remaining": 10}
         
         remaining = round(node["powerup_expire"] - now, 1)
         log_verbose("[GAME]", "powerup_ja_ativo", node=node_id, remaining_s=remaining)
-        return {"error": "ALREADY_ACTIVE"}
+        return {"error": "ALREADY_ACTIVE", "remaining": remaining}
 
     async def add_clicks(self, node_id, clicks, lamport_ts):
         if self.lock:
@@ -110,6 +136,11 @@ class GameManager():
 
         # Aplicação de Multiplicador (Power-up)
         actual_clicks = accepted
+        just_expired = (
+            node["powerup_expire"] > 0 and
+            node["powerup_expire"] <= now and
+            node["multiplier"] > 1
+        )
         if node["powerup_expire"] > now:
             actual_clicks = accepted * node["multiplier"]
             log_verbose("[GAME]", "powerup_aplicado",
@@ -118,6 +149,8 @@ class GameManager():
                         efetivo=actual_clicks)
         else:
             node["multiplier"] = 1
+            if just_expired:
+                await self._notify("powerup_expired", {"node_id": node_id})
 
         # Atualização de Scores
         before_node   = node["score"]
@@ -147,12 +180,24 @@ class GameManager():
                            global_score=self.global_score,
                            lamport_ts=lamport_ts)
                 await self.game_repo.insert_milestone(m, node_id, lamport_ts, now)
+                await self._notify("milestone", {
+                    "node_id": node_id, "value": m,
+                    "global_score": self.global_score,
+                })
 
         await self.game_repo.insert_event(node_id, clicks, accepted, rate_exceeded, lamport_ts)
         await self.node_registry.heartbeat(node_id)
 
         # Invariante de sanidade
         self._check_score_invariant("add_clicks")
+
+        # Notifica dashboard: batch de cliques processado com sucesso
+        await self._notify("click_batch", {
+            "node_id": node_id, "accepted": accepted,
+            "global_score": self.global_score,
+            "node_score": node["score"],
+            "lamport_ts": lamport_ts,
+        })
 
         response = {
             "status": "RATE_EXCEEDED" if rate_exceeded else "SUCCESS",
@@ -256,6 +301,10 @@ class GameManager():
                            value=m, node=node_id,
                            global_score=self.global_score)
                 await self.game_repo.insert_milestone(m, node_id, lamport_ts, now)
+                await self._notify("milestone", {
+                    "node_id": node_id, "value": m,
+                    "global_score": self.global_score,
+                })
 
         await self.game_repo.insert_event(
             node_id, 
@@ -277,17 +326,14 @@ class GameManager():
                    global_score=self.global_score,
                    node_score=node["score"], lamport_ts=lamport_ts)
 
-        # Notifica o dashboard da transição SYNCING → ACTIVE
-        if self.notifier:
-            import json as _json
-            await self.notifier(_json.dumps({
-                "event": "sync_complete",
-                "node_id": node_id,
-                "transition": "SYNCING->ACTIVE",
-                "global_score": self.global_score,
-                "node_score": node["score"],
-                "lamport_ts": lamport_ts,
-            }))
+        # Notifica o dashboard da transição SYNCING -> ACTIVE
+        await self._notify("sync_complete", {
+            "node_id": node_id,
+            "transition": "SYNCING->ACTIVE",
+            "global_score": self.global_score,
+            "node_score": node["score"],
+            "lamport_ts": lamport_ts,
+        })
 
         # Coleta scores de todos os nós para compor a resposta completa
         node_scores = await self.game_repo.get_nodes_scores()
