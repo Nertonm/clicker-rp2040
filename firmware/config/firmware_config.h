@@ -18,12 +18,15 @@
 #define DISPLAY_PERIOD_MS                                                      \
   50 /**< Intervalo de atualização da interface visual (ms). */
 #define MONITOR_PERIOD_MS 5000 /**< Intervalo de log de telemetria (ms). */
-#define RPC_POLL_PERIOD_MS 100 /**< Latência de resposta da tarefa RPC (ms).  \
-                                */
+#define RPC_POLL_PERIOD_MS                                                     \
+  100 /**< Latência de resposta da tarefa RPC (ms).                           \
+       */
 #define CYCLE_PERIOD_US                                                        \
   20000 /**< Período exato do ciclo online da task_rpc (µs). */
 #define SCORES_REFRESH_MS                                                      \
   5000 /**< Intervalo de busca de scores globais (ms). */
+#define HEARTBEAT_INTERVAL_US                                                  \
+  30000000ULL /**< Intervalo de heartbeat ao servidor (30 s em µs). */
 
 /** @brief Backoff exponencial para retry de registro (ms).
  *  Valores: 1s, 2s, 5s, 10s (máximo). */
