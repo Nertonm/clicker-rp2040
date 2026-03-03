@@ -17,4 +17,7 @@ DASHBOARD_HTTP_PORT = 8080
 DASHBOARD_WS_PORT = 8081  # WebSocket separado para facilitar roteamento manual
 
 # Endpoint de diagnóstico HTTP
-DEBUG_HTTP_PORT = int(os.environ.get("DEBUG_HTTP_PORT", 8090))
+DEBUG_HTTP_PORT: int = int(os.environ.get("DEBUG_HTTP_PORT", "8090"))
+
+# Simulação de latência de processamento RPC (0 = desativado)
+SIMULATE_PROCESSING_DELAY_MS: int = int(os.environ.get("SIMULATE_PROCESSING_DELAY_MS", "0"))

@@ -7,6 +7,7 @@ from infra.logger import (
     log_normal, log_verbose, log_error, log_trace,
     metric_inc, get_metrics, log_metrics,
 )
+from app import config
 
 # Estado global do servidor
 _active_connections = 0
@@ -31,7 +32,10 @@ class RPCDispatcher:
             "get_nodes_scores":    self.game_repo.get_nodes_scores,
             "set_processing_delay": self.set_processing_delay,
         }
-        self.simulate_delay_ms = 0
+        self.simulate_delay_ms = config.SIMULATE_PROCESSING_DELAY_MS
+        if self.simulate_delay_ms > 0:
+            log_normal("[RPC]", "processing_delay_enabled",
+                       delay_ms=self.simulate_delay_ms)
 
     async def set_processing_delay(self, delay_ms):
         """Altera o delay de simulação em tempo real."""
@@ -104,7 +108,8 @@ class RPCDispatcher:
             log_normal("[RPC]", "dispatch_ok",
                        method=method, node=node_id,
                        duration_ms=round(duration_ms, 2),
-                       active_connections=_active_connections)
+                       active_connections=_active_connections,
+                       asyncio_tasks=len(asyncio.all_tasks()))
 
             # Dump periódico de métricas
             if (_dispatch_count % _STATS_EVERY_N) == 0:

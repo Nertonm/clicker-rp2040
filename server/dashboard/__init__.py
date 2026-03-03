@@ -16,7 +16,12 @@ async def start_dashboard(game_manager, node_registry, get_active_connections_fn
     # Inicia servidores
     await http_server.start()
     await ws_server.start()
-    
+
+    # Injeta notifier tipado nos módulos de domínio via injeção de dependência.
+    # ws_server.notify tem assinatura async(event_type: str, payload_json: str).
+    game_manager.set_notifier(ws_server.notify)
+    node_registry.set_notifier(ws_server.notify)
+
     # Inicia loop de broadcast
     broadcast_task = asyncio.create_task(ws_server.broadcast_loop())
     

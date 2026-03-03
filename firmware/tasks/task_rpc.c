@@ -175,7 +175,7 @@ wifi_connected:
   bool registered = false;
   TickType_t last_scores_refresh = xTaskGetTickCount();
   TickType_t last_register_attempt = 0;
-  uint8_t consecutive_rpc_failures = 0;
+  uint16_t consecutive_rpc_failures = 0;
   uint8_t consecutive_register_failures = 0;
   uint64_t last_heartbeat_us =
       0; /* Timestamp do último heartbeat bem-sucedido */

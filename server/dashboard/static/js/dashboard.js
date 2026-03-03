@@ -22,6 +22,7 @@ const el = {
     nodesList: document.getElementById('nodes-list'),
     eventsList: document.getElementById('events-list'),
     activeConnections: document.getElementById('active-connections'),
+    asyncioTasks: document.getElementById('asyncio-tasks'),
     countActive: document.getElementById('count-active'),
     countSyncing: document.getElementById('count-syncing'),
     countInactive: document.getElementById('count-inactive'),
@@ -164,7 +165,10 @@ function updateDashboard(data) {
         prevScore = score;
     }
 
-    el.activeConnections.textContent = data.active_connections || 0;
+    el.activeConnections.textContent = data.active_connections ?? 0;
+    if (el.asyncioTasks && data.asyncio_tasks != null) {
+        el.asyncioTasks.textContent = data.asyncio_tasks;
+    }
 
     renderNodes(data.nodes);
     updateCounts(data.nodes);
@@ -196,7 +200,11 @@ function connect() {
 
     ws.onmessage = (event) => {
         try {
-            updateDashboard(JSON.parse(event.data));
+            const msg = JSON.parse(event.data);
+            // Suporta envelope tipado {type, payload} (novo formato event-driven)
+            // e payload plano (broadcast_loop safety-net / full_state)
+            const data = (msg.type && msg.payload !== undefined) ? msg.payload : msg;
+            updateDashboard(data);
         } catch (e) {
             console.error('Parse error:', e);
         }

@@ -205,7 +205,7 @@ async def get_all_nodes():
     """Retorna todos os nós cadastrados."""
     async with aiosqlite.connect(DB_FILE) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM nodes") as cursor:
+        async with db.execute("SELECT * FROM nodes ORDER BY node_id ASC") as cursor:
             rows = await cursor.fetchall()
     metric_inc("db_reads")
     log_trace("[DB]", "get_all_nodes", count=len(rows))
