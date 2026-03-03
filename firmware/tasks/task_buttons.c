@@ -4,20 +4,25 @@
  * @date 2026-03-01
  * @brief Implementação da tarefa de processamento de cliques.
  *
- * Esta tarefa consome os cliques pendentes registrados via interrupção (ISR)
- * no shared_state, atualiza as pontuações locais e globais e encaminha
- * os dados para a fila de transmissão RPC.
+ * Esta tarefa detecta novos cliques registrados pela ISR, emite feedback
+ * sonoro via buzzer e solicita feedback visual via LED flash.
  */
 
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "audio/buzzer.h"
 #include "drivers/display/ws2812.h"
 #include "middleware/app_queues.h"
 #include "middleware/game_events.h"
 #include "middleware/shared_state.h"
 #include "task_buttons.h"
 #include <stdio.h>
+
+/** @brief Frequência do beep de feedback de clique (Hz). */
+#define CLICK_BEEP_FREQ_HZ 1200u
+/** @brief Duração do beep de feedback de clique (ms). */
+#define CLICK_BEEP_DURATION_MS 25u
 
 /**
  * @brief Loop principal da tarefa de botões.
@@ -27,33 +32,28 @@
 void task_buttons(void *param) {
   (void)param;
 
-  /* Obtém o handle da fila de comunicação com a task_rpc */
-  QueueHandle_t queue_clicks = app_queues_get_clicks();
+  uint32_t prev_pending =
+      0; /* Rastreia valor anterior para detectar novos cliques */
 
   while (1) {
-    /* Verifica status de conexão */
-    connection_status_t status = shared_state_get_connection_status();
+    /* Lê (sem consumir) quantos cliques estão pendentes para feedback de LED.
+     * task_rpc é o único consumidor legítimo (via take_pending_clicks).
+     * Usar take() aqui criava uma race window onde task_rpc lia 0 cliques. */
+    uint32_t pending = shared_state_get_pending_clicks();
 
-    /* Consome cliques pendentes de forma atômica do shared_state */
-    uint32_t pending = shared_state_take_pending_clicks();
-
-    if (pending > 0) {
-      /* Solicita feedback visual imediato (flash de LED) */
+    /* Detecta novos cliques: o contador cresceu desde o último ciclo */
+    if (pending > prev_pending) {
+      /* Feedback visual: flash de LED */
       shared_state_set_led_flash_requested(true);
 
-      /* Se offline ou conectando (sem registro ainda), mantém em
-       * pending_clicks. task_rpc não drena queue_clicks enquanto !registered,
-       * então não adianta enviar para a fila agora — os clicks ficariam presos
-       * e sumiriam do contador de 'pending'. */
-      if (status == STATUS_OFFLINE || status == STATUS_CONNECTING) {
-        shared_state_restore_clicks(pending);
-      } else {
-        /* Online: task_rpc consome shared_state_take_pending_clicks()
-         * diretamente a cada ciclo de 20ms (US-38). Devolve os cliques para que
-         * o próximo ciclo do task_rpc os consuma — sem envio para fila. */
-        shared_state_restore_clicks(pending);
-      }
+      /* Feedback sonoro: beep curto não-bloqueante via PWM */
+      buzzer_tone(CLICK_BEEP_FREQ_HZ, CLICK_BEEP_DURATION_MS);
     }
+
+    /* Salva valor atual para detectar novos cliques no próximo ciclo.
+     * Se task_rpc consumiu (pending caiu), prev_pending se ajusta
+     * automaticamente — o buzzer não dispara quando clicks são enviados. */
+    prev_pending = pending;
 
     /* Intervalo de poll da tarefa (20ms) */
     vTaskDelay(pdMS_TO_TICKS(20));

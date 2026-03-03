@@ -52,13 +52,11 @@ static void wheel_color(uint8_t pos, uint8_t *r, uint8_t *g, uint8_t *b) {
  */
 static void format_number(char *buf, size_t size, uint32_t value) {
   if (value >= 1000000) {
-    snprintf(buf, size, "%lu,%03lu,%03lu",
-             (unsigned long)(value / 1000000),
+    snprintf(buf, size, "%lu,%03lu,%03lu", (unsigned long)(value / 1000000),
              (unsigned long)((value / 1000) % 1000),
              (unsigned long)(value % 1000));
   } else if (value >= 1000) {
-    snprintf(buf, size, "%lu,%03lu",
-             (unsigned long)(value / 1000),
+    snprintf(buf, size, "%lu,%03lu", (unsigned long)(value / 1000),
              (unsigned long)(value % 1000));
   } else {
     snprintf(buf, size, "%lu", (unsigned long)value);
@@ -70,11 +68,16 @@ static void format_number(char *buf, size_t size, uint32_t value) {
  */
 static char status_indicator(connection_status_t status) {
   switch (status) {
-  case STATUS_ONLINE:     return '*';
-  case STATUS_OFFLINE:    return '!';
-  case STATUS_CONNECTING: return '~';
-  case STATUS_SYNCING:    return '>';
-  default:                return '?';
+  case STATUS_ONLINE:
+    return '*';
+  case STATUS_OFFLINE:
+    return '!';
+  case STATUS_CONNECTING:
+    return '~';
+  case STATUS_SYNCING:
+    return '>';
+  default:
+    return '?';
   }
 }
 
@@ -130,10 +133,12 @@ void task_display(void *param) {
       }
     }
 
-    /* Em modo offline/syncing, soma cliques pendentes para feedback visual */
+    /* Em modo offline/connecting/syncing, soma cliques pendentes para feedback
+     */
     uint32_t local_display = local;
     uint32_t global_display = global;
-    if (status == STATUS_OFFLINE || status == STATUS_SYNCING) {
+    if (status == STATUS_OFFLINE || status == STATUS_CONNECTING ||
+        status == STATUS_SYNCING) {
       local_display = local + snap.pending_clicks;
       global_display = global + snap.pending_clicks;
     }
@@ -142,7 +147,8 @@ void task_display(void *param) {
     display_clear();
 
     /* Linha 0: Título + indicador de status */
-    snprintf(line, sizeof(line), "COOKIE CLICKER   [%c]", status_indicator(status));
+    snprintf(line, sizeof(line), "COOKIE CLICKER   [%c]",
+             status_indicator(status));
     display_text(0, 0, line);
 
     /* Linha 1: Separador */
@@ -167,9 +173,11 @@ void task_display(void *param) {
     /* Linha 6: Pending clicks (a enviar) */
     uint32_t pending_total = snap.pending_clicks;
     if (status == STATUS_SYNCING) {
-      snprintf(line, sizeof(line), "Enviando: %lu", (unsigned long)snap.syncing_count);
+      snprintf(line, sizeof(line), "Enviando: %lu",
+               (unsigned long)snap.syncing_count);
     } else if (pending_total > 0) {
-      snprintf(line, sizeof(line), "Pendente: %lu", (unsigned long)pending_total);
+      snprintf(line, sizeof(line), "Pendente: %lu",
+               (unsigned long)pending_total);
     } else {
       snprintf(line, sizeof(line), "Pendente: 0");
     }
@@ -178,11 +186,15 @@ void task_display(void *param) {
     /* Linha 7: Status ou Turbo */
     if (turbo_active) {
       uint32_t turbo_secs = turbo_remaining_ms / 1000;
-      uint8_t bar_fill = (uint8_t)((turbo_remaining_ms * 10) / TURBO_DURATION_MS);
-      if (bar_fill > 10) bar_fill = 10;
+      uint8_t bar_fill =
+          (uint8_t)((turbo_remaining_ms * 10) / TURBO_DURATION_MS);
+      if (bar_fill > 10)
+        bar_fill = 10;
       char bar[12] = "..........";
-      for (uint8_t i = 0; i < bar_fill; i++) bar[i] = '#';
-      snprintf(line, sizeof(line), "TURBO[%s]%lus", bar, (unsigned long)turbo_secs);
+      for (uint8_t i = 0; i < bar_fill; i++)
+        bar[i] = '#';
+      snprintf(line, sizeof(line), "TURBO[%s]%lus", bar,
+               (unsigned long)turbo_secs);
       display_text(7, 0, line);
     } else if (status == STATUS_OFFLINE) {
       display_text(7, 0, "!! OFFLINE");

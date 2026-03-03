@@ -9,6 +9,9 @@ from infra.logger import (
 RATE_LIMIT = 50
 MILESTONES = [100, 500, 1000, 5000, 10000]
 
+# TTL para cache de idempotência do sync_offline (em segundos)
+_SYNC_IDEMPOTENCY_TTL_S = 300  # 5 minutos
+
 class GameManager():
     def __init__(self, node_registry, game_repo, lamport_clock, lock=None, notifier=None):
         self.global_score = 0
@@ -20,6 +23,8 @@ class GameManager():
         self.lock = lock
         self.notifier = notifier  # backward compat — sobrescrito por main.py
         self._event_notifier = None  # typed notifier — set via set_notifier()
+        # Idempotência de sync_offline: {(node_id, lamport_ts): (timestamp, response)}
+        self._processed_syncs: dict = {}
 
     def set_notifier(self, fn):
         """Injeta callable tipado: async(event_type: str, payload_json: str)."""
@@ -223,7 +228,17 @@ class GameManager():
         Aplica rate limiting proporcional ao tempo de ausência: 50 clicks/s × tempo_offline.
         """
         now = time.time()
-        
+
+        # Idempotência: evita contagem dupla se o nó reenviar o mesmo sync
+        # (ex: TCP timeout no recv — o firmware reenvia com mesmo lamport_ts)
+        sync_key = (node_id, lamport_ts)
+        self._evict_old_syncs(now)
+        if sync_key in self._processed_syncs:
+            _, cached_response = self._processed_syncs[sync_key]
+            log_normal("[SYNC]", "sync_duplicado_ignorado",
+                       node=node_id, lamport_ts=lamport_ts)
+            return cached_response
+
         log_normal("[SYNC]", "sync_offline_inicio",
                    node=node_id, accumulated=accumulated_clicks, lamport_ts=lamport_ts)
 
@@ -328,7 +343,7 @@ class GameManager():
         # Coleta scores de todos os nós para compor a resposta completa
         node_scores = await self.game_repo.get_nodes_scores()
 
-        return {
+        response = {
             "status": "SUCCESS",
             "accepted_clicks": accepted,
             "rejected_clicks": rejected,
@@ -340,4 +355,15 @@ class GameManager():
             "milestone_value": milestones_reached[-1] if milestones_reached else None,
             "node_scores": node_scores,
         }
+
+        # Registra resposta para idempotência (TTL de 5 min)
+        self._processed_syncs[sync_key] = (now, response)
+        return response
+
+    def _evict_old_syncs(self, now: float):
+        """Remove entradas expiradas do cache de idempotência."""
+        expired = [k for k, (ts, _) in self._processed_syncs.items()
+                   if now - ts > _SYNC_IDEMPOTENCY_TTL_S]
+        for k in expired:
+            del self._processed_syncs[k]
 

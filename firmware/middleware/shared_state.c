@@ -10,9 +10,9 @@
  */
 
 #include "shared_state.h"
+#include "debug_log.h"
 #include "hardware/sync.h"
 #include <string.h>
-#include "debug_log.h"
 
 /* --- Contadores de diagnóstico do shared_state --- */
 static uint32_t diag_status_transitions = 0;
@@ -43,7 +43,8 @@ typedef struct {
                               processamento. */
   uint32_t
       syncing_count; /**< Snapshot de cliques durante sincronização offline. */
-  uint32_t offline_clicks; /**< Cliques acumulados em modo offline (feedback). */
+  uint32_t
+      offline_clicks; /**< Cliques acumulados em modo offline (feedback). */
   uint32_t pending_turbo_activations; /**< Contador de pedidos de ativação de
                                          turbo do botão B. */
   uint32_t local_score;               /**< Pontuação local do dispositivo. */
@@ -131,8 +132,8 @@ void shared_state_set_syncing_count(uint32_t count) {
   state.syncing_count = count;
   UNLOCK_STATE();
   if (count != prev) {
-    LOG_VERBOSE("[STATE]", "syncing_count: %lu -> %lu",
-                (unsigned long)prev, (unsigned long)count);
+    LOG_VERBOSE("[STATE]", "syncing_count: %lu -> %lu", (unsigned long)prev,
+                (unsigned long)count);
   }
 }
 
@@ -143,7 +144,8 @@ void shared_state_restore_clicks(uint32_t n) {
   uint32_t after = state.pending_clicks;
   UNLOCK_STATE();
   diag_restore_clicks_total += n;
-  LOG_VERBOSE("[STATE]", "restore_clicks: n=%lu pending: %lu->%lu total_restored=%lu",
+  LOG_VERBOSE("[STATE]",
+              "restore_clicks: n=%lu pending: %lu->%lu total_restored=%lu",
               (unsigned long)n, (unsigned long)prev, (unsigned long)after,
               (unsigned long)diag_restore_clicks_total);
 }
@@ -215,31 +217,29 @@ void shared_state_set_node_scores(const uint32_t *in_scores, uint8_t count) {
 
 void shared_state_set_scores(const RpcClickResult *result) {
   LOCK_STATE();
-  connection_status_t prev_status = state.connection_status;
-  uint32_t prev_local  = state.local_score;
+  uint32_t prev_local = state.local_score;
   uint32_t prev_global = state.global_score;
 
   /* Protege contra valores negativos vindos do servidor */
-  state.local_score = (result->local_score >= 0) ? (uint32_t)result->local_score : 0;
-  state.global_score = (result->global_score >= 0) ? (uint32_t)result->global_score : 0;
-  state.connection_status = STATUS_ONLINE;
-  state.server_error_active = false;
+  state.local_score =
+      (result->local_score >= 0) ? (uint32_t)result->local_score : 0;
+  state.global_score =
+      (result->global_score >= 0) ? (uint32_t)result->global_score : 0;
+
+  /* Nota: connection_status NÃO é alterado aqui — apenas task_rpc deve
+   * gerenciar transições de status para evitar flickering durante connecting,
+   * syncing, e transições intermediárias. */
 
   if (result->milestone_triggered) {
     state.milestone_triggered = true;
   }
   UNLOCK_STATE();
 
-  LOG_VERBOSE("[STATE]", "set_scores: local=%lu->%lu global=%lu->%lu milestone=%d",
+  LOG_VERBOSE("[STATE]",
+              "set_scores: local=%lu->%lu global=%lu->%lu milestone=%d",
               (unsigned long)prev_local, (unsigned long)result->local_score,
               (unsigned long)prev_global, (unsigned long)result->global_score,
               (int)result->milestone_triggered);
-  if (prev_status != STATUS_ONLINE) {
-    DIAG_CNT_INC(diag_status_transitions);
-    LOG_NORMAL("[STATE]", "STATUS: %s -> ONLINE (via set_scores, trans#%lu)",
-               conn_status_name((int)prev_status),
-               (unsigned long)diag_status_transitions);
-  }
 }
 
 connection_status_t shared_state_get_connection_status(void) {
@@ -257,8 +257,7 @@ void shared_state_set_connection_status(connection_status_t status) {
   if (prev != status) {
     DIAG_CNT_INC(diag_status_transitions);
     LOG_NORMAL("[STATE]", "STATUS: %s -> %s (trans#%lu)",
-               conn_status_name((int)prev),
-               conn_status_name((int)status),
+               conn_status_name((int)prev), conn_status_name((int)status),
                (unsigned long)diag_status_transitions);
   }
 }

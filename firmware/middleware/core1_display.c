@@ -30,11 +30,21 @@ void core1_display_entry(void) {
     bool fallback = shared_state_get_fallback_in_use();
     bool server_error = shared_state_get_server_error_active();
 
+    /* Em modo offline/syncing/connecting, soma pending_clicks ao score
+     * para feedback visual imediato — matriz não fica em zero quando offline.
+     */
     char buf_score[20];
     char buf_status[20];
+    uint32_t pending = shared_state_get_pending_clicks();
+    uint32_t display_score = score;
+    if (status == STATUS_OFFLINE || status == STATUS_CONNECTING ||
+        status == STATUS_SYNCING) {
+      display_score = score + pending;
+    }
 
-    // Formata placar
-    snprintf(buf_score, sizeof(buf_score), "Placar: %u", (unsigned int)score);
+    // Formata placar com cliques pendentes incluídos quando offline
+    snprintf(buf_score, sizeof(buf_score), "Placar: %u",
+             (unsigned int)display_score);
 
     // Formata status de conexão para exibição
     switch (status) {
@@ -79,8 +89,9 @@ void core1_display_entry(void) {
       // Mostra o número 0 em dourado como destaque
       led_matrix_draw_number(0, 15, 10, 0);
     } else {
-      // Atualiza a matriz de LEDs com o dígito menos significativo do score
-      uint8_t digito = (uint8_t)(score % 10u);
+      // Atualiza a matriz de LEDs com o dígito do score (inclui pending
+      // offline)
+      uint8_t digito = (uint8_t)(display_score % 10u);
       led_matrix_draw_number(digito, 8, 8, 8);
     }
 
